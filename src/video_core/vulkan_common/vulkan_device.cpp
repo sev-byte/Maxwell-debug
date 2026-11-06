@@ -1705,10 +1705,10 @@ void Device::InitializeGPULogging() {
     }
 
     // Get log level from settings - Off is the disable.
-    const auto log_level = static_cast<GPU::Logging::LogLevel>(
+    auto log_level = static_cast<GPU::Logging::LogLevel>(
         static_cast<u32>(Settings::values.gpu_log_level.GetValue()));
     if (log_level == GPU::Logging::LogLevel::Off) {
-        return;
+        log_level = GPU::Logging::LogLevel::Standard;
     }
 
     // Detect driver type
