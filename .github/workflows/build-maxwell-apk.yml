@@ -49,6 +49,12 @@ jobs:
             "ndk;28.2.13676358" \
             "cmake;3.31.5"
 
+      - name: Install host shader compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslang-tools
+          glslangValidator --version
+
       - name: Build arm64 APK
         working-directory: src/android
         run: |
