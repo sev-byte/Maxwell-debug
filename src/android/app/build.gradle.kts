@@ -189,8 +189,9 @@ android {
             dimension = "version"
             isDefault = true
             minSdk = 33
+            applicationId = "dev.eden.maxwell_issue_tracking"
 
-            manifestPlaceholders += mapOf("appNameBase" to "Eden")
+            manifestPlaceholders += mapOf("appNameBase" to "Eden Maxwell")
             resValue("string", "app_name_suffixed", "Eden")
 
             ndk {
