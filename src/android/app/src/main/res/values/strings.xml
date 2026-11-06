@@ -407,8 +407,8 @@
     <string name="share_log">Share debug logs</string>
     <string name="share_log_description">Share Eden\'s log file to debug issues</string>
     <string name="share_log_missing">No log file found</string>
-    <string name="share_gpu_log">Share GPU logs</string>
-    <string name="share_gpu_log_description">Share Eden\'s GPU log file to debug graphics issues</string>
+    <string name="share_gpu_log">Share Maxwell diagnostic log</string>
+    <string name="share_gpu_log_description">Share the GPU diagnostic log to help investigate graphics issues</string>
     <string name="share_gpu_log_missing">No GPU log file found</string>
     <string name="install_game_content">Install game content</string>
     <string name="install_game_content_description">Install game updates or DLC</string>
