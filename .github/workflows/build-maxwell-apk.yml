@@ -1,10 +1,10 @@
-name: Build Maxwell Issue Tracking APK
+name: Build Skyrim Light Buffer Capture APK
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - maxwell-issue-tracking
+      - skyrim-light-buffer-capture
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
@@ -67,7 +67,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: eden-maxwell-issue-tracking-arm64
+          name: eden-skyrim-light-buffer-capture-arm64
           path: src/android/app/build/outputs/apk/mainline/release/*.apk
           if-no-files-found: error
           retention-days: 14
