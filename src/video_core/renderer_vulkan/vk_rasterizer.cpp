@@ -6,14 +6,20 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <mutex>
+#include <type_traits>
+#include <unordered_set>
+#include <vector>
 
 #include <fmt/format.h>
 
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 
 #include "common/assert.h"
+#include "common/fs/path_util.h"
 #include "common/logging.h"
 #include "common/scope_exit.h"
 #include "common/settings.h"
@@ -21,6 +27,7 @@
 #include "video_core/gpu_logging/gpu_logging.h"
 #include "video_core/control/channel_state.h"
 #include "video_core/engines/maxwell_3d.h"
+#include "video_core/memory_manager.h"
 #include "video_core/engines/kepler_compute.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/host1x/gpu_device_memory_manager.h"
@@ -199,6 +206,100 @@ bool IsPrimitiveRestartSupported(const Device& device, VkPrimitiveTopology topol
             (topology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST &&
              device.IsPatchListPrimitiveRestartSupported()));
 }
+
+void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
+                               const Tegra::Engines::Maxwell3D& engine,
+                               const Tegra::MemoryManager& memory) {
+    constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
+    constexpr size_t MAX_BUFFER_SIZE = 0x10000;
+    constexpr size_t MAX_CAPTURE_FILE_SIZE = 16 * 1024 * 1024;
+    constexpr std::array<size_t, 2> BUFFER_INDICES{5, 15};
+    if (fragment_shader_hash != TARGET_SHADER_HASH) {
+        return;
+    }
+
+    struct RecordHeader {
+        u32 magic;
+        u32 version;
+        u64 sequence;
+        u64 shader_hash;
+        std::array<u64, 2> gpu_addresses;
+        std::array<u32, 2> sizes;
+        std::array<u64, 2> content_hashes;
+    };
+    static_assert(std::is_trivially_copyable_v<RecordHeader>);
+
+    static std::mutex mutex;
+    static std::unordered_set<u64> captured;
+    static u64 sequence = 0;
+    static size_t bytes_written = 0;
+
+    std::array<std::vector<u8>, 2> contents;
+    RecordHeader header{
+        .magic = 0x534B594C,
+        .version = 1,
+        .sequence = 0,
+        .shader_hash = fragment_shader_hash,
+    };
+
+    for (size_t i = 0; i < BUFFER_INDICES.size(); ++i) {
+        const auto& buffer = engine.state.shader_stages[4].const_buffers[BUFFER_INDICES[i]];
+        if (!buffer.enabled || buffer.address == 0 || buffer.size == 0 ||
+            buffer.size > MAX_BUFFER_SIZE) {
+            return;
+        }
+        contents[i].resize(buffer.size);
+        memory.ReadBlockUnsafe(buffer.address, contents[i].data(), contents[i].size());
+        header.gpu_addresses[i] = buffer.address;
+        header.sizes[i] = buffer.size;
+
+        u64 hash = 1469598103934665603ULL;
+        for (const u8 byte : contents[i]) {
+            hash = (hash ^ byte) * 1099511628211ULL;
+        }
+        header.content_hashes[i] = hash;
+    }
+
+    const u64 pair_hash = header.content_hashes[0] ^
+                          (header.content_hashes[1] + 0x9e3779b97f4a7c15ULL +
+                           (header.content_hashes[0] << 6) + (header.content_hashes[0] >> 2));
+    std::scoped_lock lock{mutex};
+    if (captured.contains(pair_hash)) {
+        return;
+    }
+
+    const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
+                      "skyrim_light_buffer_capture.bin";
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) {
+        return;
+    }
+    if (bytes_written == 0 && std::filesystem::exists(path, error) && !error) {
+        bytes_written = static_cast<size_t>(std::filesystem::file_size(path, error));
+    }
+    const size_t record_size = sizeof(RecordHeader) + contents[0].size() + contents[1].size();
+    if (error || bytes_written + record_size > MAX_CAPTURE_FILE_SIZE) {
+        return;
+    }
+
+    header.sequence = ++sequence;
+    std::ofstream file(path, std::ios::binary | std::ios::app);
+    if (!file.is_open()) {
+        return;
+    }
+    file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+    for (const auto& buffer : contents) {
+        file.write(reinterpret_cast<const char*>(buffer.data()),
+                   static_cast<std::streamsize>(buffer.size()));
+    }
+    file.flush();
+    if (!file.good()) {
+        return;
+    }
+    captured.insert(pair_hash);
+    bytes_written += record_size;
+}
 } // Anonymous namespace
 
 RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra::GPU& gpu_,
@@ -253,6 +354,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
     // update engine as channel may be different.
     pipeline->SetEngine(maxwell3d, gpu_memory);
+    CaptureSkyrimLightBuffers(pipeline->FragmentShaderHash(), *maxwell3d, *gpu_memory);
     attribute_handle_pipeline = nullptr;
     attribute_handle_runs.clear();
     if (split_attribute_handles && pipeline->UsesAttributeHandle()) {
