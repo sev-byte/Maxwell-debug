@@ -300,6 +300,58 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
     captured.insert(pair_hash);
     bytes_written += record_size;
 }
+
+void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
+                                     bool is_indexed,
+                                     u32 topology,
+                                     const std::vector<RasterizerVulkan::AttributeHandleRun>& runs) {
+    constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
+    constexpr size_t MAX_DIAGNOSTIC_LINES = 512;
+    if (pipeline.FragmentShaderHash() != TARGET_SHADER_HASH) {
+        return;
+    }
+    static std::mutex mutex;
+    static size_t lines_written = 0;
+    std::scoped_lock lock{mutex};
+    if (lines_written >= MAX_DIAGNOSTIC_LINES) {
+        return;
+    }
+    const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
+                      "skyrim_pipeline_diagnostic.txt";
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) {
+        return;
+    }
+    std::ofstream file(path, std::ios::app);
+    if (!file.is_open()) {
+        return;
+    }
+    const auto& info = pipeline.FragmentShaderInfo();
+    file << "draw=" << lines_written << " uses_attribute_handle="
+         << pipeline.UsesAttributeHandle() << " indexed=" << is_indexed
+         << " topology=" << topology << " texture_descriptors="
+         << info.texture_descriptors.size() << " runs=" << runs.size() << "\\n";
+    for (size_t i = 0; i < info.texture_descriptors.size(); ++i) {
+        const auto& desc = info.texture_descriptors[i];
+        file << "  texture[" << i << "] cbuf_index=" << desc.cbuf_index
+             << " cbuf_offset=" << desc.cbuf_offset << " count=" << desc.count
+             << " size_shift=" << static_cast<u32>(desc.size_shift)
+             << " has_secondary=" << desc.has_secondary
+             << " secondary_cbuf_index=" << desc.secondary_cbuf_index
+             << " secondary_cbuf_offset=" << desc.secondary_cbuf_offset
+             << "\\n";
+    }
+    for (size_t i = 0; i < runs.size(); ++i) {
+        file << "  run[" << i << "] first=" << runs[i].first
+             << " count=" << runs[i].count << " handle=0x" << std::hex
+             << runs[i].handle << std::dec << "\\n";
+    }
+    file.flush();
+    if (file.good()) {
+        ++lines_written;
+    }
+}
 } // Anonymous namespace
 
 RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra::GPU& gpu_,
@@ -364,6 +416,9 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
             pipeline->SetAttributeHandle(attribute_handle_runs.front().handle);
         }
     }
+    CaptureSkyrimPipelineDiagnostic(*pipeline, is_indexed,
+                                     static_cast<u32>(maxwell3d->draw_manager.draw_state.topology),
+                                     attribute_handle_runs);
     if (!pipeline->Configure(is_indexed))
         return;
 
