@@ -301,10 +301,11 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
     bytes_written += record_size;
 }
 
+template <typename Runs>
 void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
                                      bool is_indexed,
                                      u32 topology,
-                                     const std::vector<RasterizerVulkan::AttributeHandleRun>& runs) {
+                                     const Runs& runs) {
     constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
     constexpr size_t MAX_DIAGNOSTIC_LINES = 512;
     if (pipeline.FragmentShaderHash() != TARGET_SHADER_HASH) {
