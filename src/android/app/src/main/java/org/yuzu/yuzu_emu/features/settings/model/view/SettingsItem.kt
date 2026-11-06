@@ -1041,6 +1041,13 @@ abstract class SettingsItem(
 
             // GPU Logging settings
             put(
+                SwitchSetting(
+                    BooleanSetting.MAXWELL_ISSUE_TRACKING,
+                    titleId = R.string.maxwell_issue_tracking,
+                    descriptionId = R.string.maxwell_issue_tracking_description
+                )
+            )
+            put(
                 SingleChoiceSetting(
                     ByteSetting.GPU_LOG_LEVEL,
                     titleId = R.string.gpu_log_level,
