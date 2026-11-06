@@ -117,6 +117,10 @@ public:
         return uses_attribute_handle;
     }
 
+    [[nodiscard]] const Shader::Info& FragmentShaderInfo() const noexcept {
+        return stage_infos[NUM_STAGES - 1];
+    }
+
     /// Handle bound to those textures by the next Configure.
     void SetAttributeHandle(u32 handle) noexcept {
         attribute_handle = handle;
