@@ -1699,6 +1699,11 @@ std::vector<VkDeviceQueueCreateInfo> Device::GetDeviceQueueCreateInfos() const {
 }
 
 void Device::InitializeGPULogging() {
+    // Maxwell Issue Tracking is an opt-in diagnostics feature. It does not alter rendering.
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+
     // Get log level from settings - Off is the disable.
     const auto log_level = static_cast<GPU::Logging::LogLevel>(
         static_cast<u32>(Settings::values.gpu_log_level.GetValue()));
