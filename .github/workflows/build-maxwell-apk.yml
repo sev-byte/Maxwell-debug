@@ -71,3 +71,5 @@ jobs:
           path: src/android/app/build/outputs/apk/mainline/release/*.apk
           if-no-files-found: error
           retention-days: 14
+
+# Rebuild latest Skyrim diagnostic changes.
