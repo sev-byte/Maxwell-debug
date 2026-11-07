@@ -303,6 +303,7 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
 
 template <typename Runs>
 void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
+                                     const Tegra::Engines::Maxwell3D& engine,
                                      bool is_indexed,
                                      u32 topology,
                                      const Runs& runs) {
@@ -329,10 +330,47 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
         return;
     }
     const auto& info = pipeline.FragmentShaderInfo();
-    file << "draw=" << lines_written << " uses_attribute_handle="
-         << pipeline.UsesAttributeHandle() << " indexed=" << is_indexed
-         << " topology=" << topology << " texture_descriptors="
-         << info.texture_descriptors.size() << " runs=" << runs.size() << "\\n";
+    const auto& draw = engine.draw_manager.draw_state;
+    const auto& regs = engine.regs;
+    file << "draw=" << lines_written << " shader=0x" << std::hex
+         << pipeline.FragmentShaderHash() << std::dec
+         << " uses_attribute_handle=" << pipeline.UsesAttributeHandle()
+         << " indexed=" << is_indexed << " topology=" << topology
+         << " draw_mode=" << static_cast<u32>(draw.draw_mode)
+         << " base_instance=" << draw.base_instance
+         << " instance_count=" << draw.instance_count
+         << " vertex_first=" << draw.vertex_buffer.first
+         << " vertex_count=" << draw.vertex_buffer.count
+         << " index_first=" << draw.index_buffer.first
+         << " index_count=" << draw.index_buffer.count
+         << " index_base=" << draw.base_index
+         << " texture_descriptors=" << info.texture_descriptors.size()
+         << " runs=" << runs.size() << "\n";
+    for (const size_t slot : {size_t{5}, size_t{15}}) {
+        const auto& cb = engine.state.shader_stages[4].const_buffers[slot];
+        file << "  cb[" << slot << "] enabled=" << cb.enabled
+             << " gpu_address=0x" << std::hex << cb.address << std::dec
+             << " size=" << cb.size << "\n";
+    }
+    // These GPU stream ranges are the renderer-visible mesh inputs; asset filenames
+    // are not retained by Maxwell3D at this point.
+    for (size_t i = 0; i < regs.vertex_streams.size(); ++i) {
+        const auto& stream = regs.vertex_streams[i];
+        if (!stream.IsEnabled()) {
+            continue;
+        }
+        file << "  vertex_stream[" << i << "] gpu_address=0x" << std::hex
+             << stream.Address() << std::dec << " stride=" << stream.stride << "\n";
+    }
+    if (is_indexed) {
+        file << "  index_buffer gpu_start=0x" << std::hex
+             << draw.index_buffer.StartAddress() << " index_start=0x"
+             << draw.index_buffer.IndexStart() << " end=0x"
+             << draw.index_buffer.EndAddress() << std::dec
+             << " format=" << static_cast<u32>(draw.index_buffer.format)
+             << " first=" << draw.index_buffer.first
+             << " count=" << draw.index_buffer.count << "\n";
+    }
     for (size_t i = 0; i < info.texture_descriptors.size(); ++i) {
         const auto& desc = info.texture_descriptors[i];
         file << "  texture[" << i << "] cbuf_index=" << desc.cbuf_index
@@ -341,19 +379,18 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
              << " has_secondary=" << desc.has_secondary
              << " secondary_cbuf_index=" << desc.secondary_cbuf_index
              << " secondary_cbuf_offset=" << desc.secondary_cbuf_offset
-             << "\\n";
+             << "\n";
     }
     for (size_t i = 0; i < runs.size(); ++i) {
         file << "  run[" << i << "] first=" << runs[i].first
              << " count=" << runs[i].count << " handle=0x" << std::hex
-             << runs[i].handle << std::dec << "\\n";
+             << runs[i].handle << std::dec << "\n";
     }
     file.flush();
     if (file.good()) {
         ++lines_written;
     }
-}
-} // Anonymous namespace
+}} // Anonymous namespace
 
 RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra::GPU& gpu_,
                                    Tegra::MaxwellDeviceMemoryManager& device_memory_,
@@ -417,7 +454,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
             pipeline->SetAttributeHandle(attribute_handle_runs.front().handle);
         }
     }
-    CaptureSkyrimPipelineDiagnostic(*pipeline, is_indexed,
+    CaptureSkyrimPipelineDiagnostic(*pipeline, *maxwell3d, is_indexed,
                                      static_cast<u32>(maxwell3d->draw_manager.draw_state.topology),
                                      attribute_handle_runs);
     if (!pipeline->Configure(is_indexed))
