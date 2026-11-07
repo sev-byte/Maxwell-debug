@@ -304,7 +304,8 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
 }
 
 void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_name,
-                            const Tegra::Engines::Maxwell3D& engine) {
+                            const Tegra::Engines::Maxwell3D& engine,
+                            const Tegra::MemoryManager& memory) {
     constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
     constexpr size_t MAX_EVENTS = 4096;
     if (pipeline.FragmentShaderHash() != TARGET_SHADER_HASH) {
@@ -312,6 +313,8 @@ void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_
     }
     static std::mutex mutex;
     static u64 sequence = 0;
+    static std::ofstream event_file;
+    static size_t pending_flushes = 0;
     std::scoped_lock lock{mutex};
     if (sequence >= MAX_EVENTS) {
         return;
@@ -328,17 +331,30 @@ void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_
     if (error) {
         return;
     }
-    std::ofstream file(path, std::ios::app);
-    if (!file.is_open()) {
+    if (!event_file.is_open()) {
+        event_file.open(path, std::ios::app);
+    }
+    if (!event_file.is_open()) {
         return;
     }
-    file << "wall_ms=" << wall_time_ms << " monotonic_ms=" << monotonic_time_ms
-         << " event_sequence=" << ++sequence << " event=" << event_name
-         << " shader=0x" << std::hex << pipeline.FragmentShaderHash() << std::dec
-         << " vertex_count=" << draw.vertex_buffer.count
-         << " index_count=" << draw.index_buffer.count
-         << " instance_count=" << draw.instance_count << "\n";
-    file.flush();
+    const auto& cb2 = engine.state.shader_stages[4].const_buffers[2];
+    u64 descriptor_32 = 0;
+    u64 descriptor_40 = 0;
+    if (cb2.enabled && cb2.address != 0 && cb2.size >= 48) {
+        memory.ReadBlockUnsafe(cb2.address + 32, &descriptor_32, sizeof(descriptor_32));
+        memory.ReadBlockUnsafe(cb2.address + 40, &descriptor_40, sizeof(descriptor_40));
+    }
+    event_file << "wall_ms=" << wall_time_ms << " monotonic_ms=" << monotonic_time_ms
+               << " event_sequence=" << ++sequence << " event=" << event_name
+               << " shader=0x" << std::hex << pipeline.FragmentShaderHash()
+               << " cb2_desc32=0x" << descriptor_32 << " cb2_desc40=0x" << descriptor_40
+               << std::dec << " vertex_count=" << draw.vertex_buffer.count
+               << " index_count=" << draw.index_buffer.count
+               << " instance_count=" << draw.instance_count << "\n";
+    if (++pending_flushes >= 32) {
+        event_file.flush();
+        pending_flushes = 0;
+    }
 }
 
 template <typename Runs>
@@ -510,10 +526,10 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     query_cache.NotifySegment(true);
     HandleTransformFeedback();
     query_cache.CounterEnable(VideoCommon::QueryType::ZPassPixelCount64, maxwell3d->regs.zpass_pixel_count_enable);
-    CaptureSkyrimDrawEvent(*pipeline, "draw_command_recording_begin", *maxwell3d);
+    CaptureSkyrimDrawEvent(*pipeline, "draw_command_recording_begin", *maxwell3d, *gpu_memory);
     draw_func();
     // This marks CPU-side command recording/submission to the scheduler, not GPU completion.
-    CaptureSkyrimDrawEvent(*pipeline, "draw_command_recorded", *maxwell3d);
+    CaptureSkyrimDrawEvent(*pipeline, "draw_command_recorded", *maxwell3d, *gpu_memory);
 }
 
 void RasterizerVulkan::CollectAttributeHandleRuns(bool is_indexed) {
