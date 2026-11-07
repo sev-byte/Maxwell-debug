@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - skyrim-light-buffer-capture
+      - skyrim-timestamped-gpu-events
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
