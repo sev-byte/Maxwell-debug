@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -301,6 +303,44 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
     bytes_written += record_size;
 }
 
+void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_name,
+                            const Tegra::Engines::Maxwell3D& engine) {
+    constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
+    constexpr size_t MAX_EVENTS = 4096;
+    if (pipeline.FragmentShaderHash() != TARGET_SHADER_HASH) {
+        return;
+    }
+    static std::mutex mutex;
+    static u64 sequence = 0;
+    std::scoped_lock lock{mutex};
+    if (sequence >= MAX_EVENTS) {
+        return;
+    }
+    const auto wall_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto monotonic_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const auto& draw = engine.draw_manager.draw_state;
+    const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
+                      "skyrim_gpu_events.log";
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) {
+        return;
+    }
+    std::ofstream file(path, std::ios::app);
+    if (!file.is_open()) {
+        return;
+    }
+    file << "wall_ms=" << wall_time_ms << " monotonic_ms=" << monotonic_time_ms
+         << " event_sequence=" << ++sequence << " event=" << event_name
+         << " shader=0x" << std::hex << pipeline.FragmentShaderHash() << std::dec
+         << " vertex_count=" << draw.vertex_buffer.count
+         << " index_count=" << draw.index_buffer.count
+         << " instance_count=" << draw.instance_count << "\n";
+    file.flush();
+}
+
 template <typename Runs>
 void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
                                      const Tegra::Engines::Maxwell3D& engine,
@@ -332,7 +372,12 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
     const auto& info = pipeline.FragmentShaderInfo();
     const auto& draw = engine.draw_manager.draw_state;
     const auto& regs = engine.regs;
-    file << "draw=" << lines_written << " shader=0x" << std::hex
+    const auto wall_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto monotonic_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    file << "wall_ms=" << wall_time_ms << " monotonic_ms=" << monotonic_time_ms
+         << " draw_sequence=" << lines_written << " shader=0x" << std::hex
          << pipeline.FragmentShaderHash() << std::dec
          << " uses_attribute_handle=" << pipeline.UsesAttributeHandle()
          << " indexed=" << is_indexed << " topology=" << topology
@@ -465,7 +510,10 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     query_cache.NotifySegment(true);
     HandleTransformFeedback();
     query_cache.CounterEnable(VideoCommon::QueryType::ZPassPixelCount64, maxwell3d->regs.zpass_pixel_count_enable);
+    CaptureSkyrimDrawEvent(*pipeline, "draw_command_recording_begin", *maxwell3d);
     draw_func();
+    // This marks CPU-side command recording/submission to the scheduler, not GPU completion.
+    CaptureSkyrimDrawEvent(*pipeline, "draw_command_recorded", *maxwell3d);
 }
 
 void RasterizerVulkan::CollectAttributeHandleRuns(bool is_indexed) {
