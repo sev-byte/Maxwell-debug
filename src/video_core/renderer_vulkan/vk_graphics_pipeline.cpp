@@ -377,6 +377,31 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
             }
         }
         const auto& cbufs{maxwell3d->state.shader_stages[stage].const_buffers};
+        const int descriptor_test_mode = std::clamp(
+            Settings::values.skyrim_texture_descriptor_test_mode.GetValue(), 0, 2);
+        const Shader::TextureDescriptor* descriptor_32 = nullptr;
+        const Shader::TextureDescriptor* descriptor_40 = nullptr;
+        // Restrict the experiment to the known Skyrim fragment shader and its
+        // two single-entry descriptors in CB2. Requiring both descriptors in
+        // the same stage prevents unrelated resources from being modified.
+        if (stage == NUM_STAGES - 1 &&
+            FragmentShaderHash() == 0xde45de8572884068ULL && descriptor_test_mode != 0) {
+            for (const auto& desc : info.texture_descriptors) {
+                if (desc.cbuf_index != 2 || desc.count != 1 || desc.size_shift != 3 ||
+                    desc.has_secondary) {
+                    continue;
+                }
+                if (desc.cbuf_offset == 32) {
+                    descriptor_32 = &desc;
+                } else if (desc.cbuf_offset == 40) {
+                    descriptor_40 = &desc;
+                }
+            }
+            if (descriptor_32 == nullptr || descriptor_40 == nullptr) {
+                descriptor_32 = nullptr;
+                descriptor_40 = nullptr;
+            }
+        }
         const auto read_handle{[&](const auto& desc, u32 index) {
             if (desc.cbuf_index == Shader::ATTRIBUTE_HANDLE_CBUF_INDEX) {
                 return TexturePair(attribute_handle, via_header_index);
@@ -423,7 +448,14 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
         }
         for (const auto& desc : info.texture_descriptors) {
             for (u32 index = 0; index < desc.count; ++index) {
-                const auto handle{read_handle(desc, index)};
+                auto handle{read_handle(desc, index)};
+                if (descriptor_32 != nullptr && descriptor_40 != nullptr) {
+                    if (descriptor_test_mode == 1 && &desc == descriptor_40) {
+                        handle = read_handle(*descriptor_32, index);
+                    } else if (descriptor_test_mode == 2 && &desc == descriptor_32) {
+                        handle = read_handle(*descriptor_40, index);
+                    }
+                }
                 views.push_back({handle.first});
 
                 VideoCommon::SamplerId sampler{texture_cache.GetSamplerId(handle.second, false)};

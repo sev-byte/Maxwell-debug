@@ -1520,6 +1520,19 @@ class SettingsFragmentPresenter(
 
             add(IntSetting.RENDERER_BACKEND.key)
             add(BooleanSetting.RENDERER_DEBUG.key)
+            add(
+                IntSingleChoiceSetting(
+                    IntSetting.SKYRIM_TEXTURE_DESCRIPTOR_TEST_MODE,
+                    titleId = R.string.skyrim_texture_descriptor_test_mode,
+                    descriptionId = R.string.skyrim_texture_descriptor_test_mode_description,
+                    choices = arrayOf(
+                        context.getString(R.string.skyrim_texture_descriptor_both),
+                        context.getString(R.string.skyrim_texture_descriptor_32_twice),
+                        context.getString(R.string.skyrim_texture_descriptor_40_twice)
+                    ),
+                    values = arrayOf(0, 1, 2)
+                )
+            )
             add(BooleanSetting.RENDERER_PATCH_OLD_QCOM_DRIVERS.key)
             add(BooleanSetting.BUFFER_REORDER_DISABLE.key)
 

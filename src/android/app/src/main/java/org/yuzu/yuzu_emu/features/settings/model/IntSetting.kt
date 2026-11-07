@@ -73,6 +73,7 @@ enum class IntSetting(override val key: String) : AbstractIntSetting {
     INPUT_OVERLAY_AUTO_HIDE("input_overlay_auto_hide"),
     OVERLAY_GRID_SIZE("overlay_grid_size"),
     GPU_LOG_RING_BUFFER_SIZE("gpu_log_ring_buffer_size"),
+    SKYRIM_TEXTURE_DESCRIPTOR_TEST_MODE("skyrim_texture_descriptor_test_mode"),
     ANDROID_PIPELINE_WORKERS("pipeline_worker_count")
     ;
 

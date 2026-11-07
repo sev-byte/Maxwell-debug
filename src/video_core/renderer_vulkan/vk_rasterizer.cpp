@@ -332,8 +332,22 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
     const auto& info = pipeline.FragmentShaderInfo();
     const auto& draw = engine.draw_manager.draw_state;
     const auto& regs = engine.regs;
+    const auto has_descriptor_at = [&](u32 offset) {
+        return std::any_of(info.texture_descriptors.begin(), info.texture_descriptors.end(),
+                           [&](const auto& desc) {
+                               return desc.cbuf_index == 2 && desc.cbuf_offset == offset &&
+                                      desc.count == 1 && desc.size_shift == 3 &&
+                                      !desc.has_secondary;
+                           });
+    };
+    const int descriptor_test_mode = std::clamp(
+        Settings::values.skyrim_texture_descriptor_test_mode.GetValue(), 0, 2);
+    const bool descriptor_test_pair_found =
+        has_descriptor_at(32) && has_descriptor_at(40);
     file << "draw=" << lines_written << " shader=0x" << std::hex
          << pipeline.FragmentShaderHash() << std::dec
+         << " texture_descriptor_test_mode=" << descriptor_test_mode
+         << " texture_descriptor_test_pair_found=" << descriptor_test_pair_found
          << " uses_attribute_handle=" << pipeline.UsesAttributeHandle()
          << " indexed=" << is_indexed << " topology=" << topology
          << " draw_mode=" << static_cast<u32>(draw.draw_mode)

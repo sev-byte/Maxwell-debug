@@ -706,6 +706,11 @@ struct Values {
                                                        "vertex_input_dynamic_state", Category::RendererExtensions};
 
     Setting<bool> renderer_debug{linkage, false, "debug", Category::RendererDebug};
+    // Skyrim light-buffer experiment: 0=original, 1=use CB2 offset 32 twice,
+    // 2=use CB2 offset 40 twice. Runtime-modifiable for A/B testing.
+    SwitchableSetting<int> skyrim_texture_descriptor_test_mode{
+        linkage, 0, "skyrim_texture_descriptor_test_mode", Category::RendererDebug,
+        Specialization::Default, true, true};
     Setting<bool> renderer_shader_feedback{linkage, false, "shader_feedback",
                                            Category::RendererDebug};
     Setting<bool> enable_nsight_aftermath{linkage, false, "nsight_aftermath",

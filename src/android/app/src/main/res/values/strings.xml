@@ -1893,4 +1893,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     <string name="add_folders">Add Folder</string>
     <string name="percent">%1$d%%</string>
 
+    <string name="skyrim_texture_descriptor_test_mode">Texture Descriptor Test Mode</string>
+    <string name="skyrim_texture_descriptor_test_mode_description">Skyrim lighting diagnostic: keep the original texture descriptors, or make the descriptors at constant-buffer offsets 32 or 40 use the same texture and sampler. The setting is read during each draw and can be changed while testing.</string>
+    <string name="skyrim_texture_descriptor_both">Both (Default)</string>
+    <string name="skyrim_texture_descriptor_32_twice">32 Twice</string>
+    <string name="skyrim_texture_descriptor_40_twice">40 Twice</string>
 </resources>
