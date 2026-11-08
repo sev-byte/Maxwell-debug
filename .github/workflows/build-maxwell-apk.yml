@@ -7,6 +7,7 @@ on:
       - skyrim-light-buffer-capture
       - skyrim-timestamped-gpu-events
       - skyrim-full-pipeline-capture
+      - skyrim-shader-isolation
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
