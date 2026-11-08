@@ -6,6 +6,7 @@ on:
     branches:
       - skyrim-light-buffer-capture
       - skyrim-timestamped-gpu-events
+      - skyrim-full-pipeline-capture
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
