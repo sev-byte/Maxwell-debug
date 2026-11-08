@@ -1002,7 +1002,7 @@ void RasterizerVulkan::DispatchCompute() {
                                 << " images=" << shader_info.image_descriptors.size()
                                 << " image_buffers=" << shader_info.image_buffer_descriptors.size()
                                 << " texture_buffers=" << shader_info.texture_buffer_descriptors.size()
-                                << "\\n";
+                                << "\n";
                     if (++compute_events % 32 == 0) {
                         compute_log.flush();
                     }
