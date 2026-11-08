@@ -12,6 +12,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <type_traits>
 #include <unordered_set>
 #include <vector>
@@ -344,15 +345,11 @@ void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_
                             const Tegra::Engines::Maxwell3D& engine,
                             const Tegra::MemoryManager& memory) {
     ResetSkyrimCaptureFilesOnce();
-    constexpr u64 MAX_GPU_EVENTS = 250000;
     static std::mutex mutex;
     static u64 sequence = 0;
     static std::ofstream event_file;
     static size_t pending_flushes = 0;
     std::scoped_lock lock{mutex};
-    if (sequence >= MAX_GPU_EVENTS) {
-        return;
-    }
     const auto wall_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     const auto monotonic_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -405,7 +402,6 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
                                      u32 topology,
                                      const Runs& runs) {
     ResetSkyrimCaptureFilesOnce();
-    constexpr size_t MAX_PIPELINE_RECORDS = 20000;
     constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
 
     if (pipeline.FragmentShaderHash() != TARGET_SHADER_HASH) {
@@ -414,9 +410,6 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
     static std::mutex mutex;
     static size_t lines_written = 0;
     std::scoped_lock lock{mutex};
-    if (lines_written >= MAX_PIPELINE_RECORDS) {
-        return;
-    }
     const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
                       "skyrim_pipeline_diagnostic.txt";
     std::error_code error;
@@ -1009,7 +1002,6 @@ void RasterizerVulkan::DispatchCompute() {
     // translated shared-memory requirement without assuming a unit conversion here.
     {
         static std::mutex compute_log_mutex;
-        constexpr size_t MAX_COMPUTE_EVENTS = 250000;
         static size_t compute_events = 0;
         static std::ofstream compute_log;
         std::scoped_lock compute_lock{compute_log_mutex};
@@ -1030,7 +1022,7 @@ void RasterizerVulkan::DispatchCompute() {
 
                     }
                 }
-                if (compute_log.is_open() && compute_events < MAX_COMPUTE_EVENTS) {
+                if (compute_log.is_open()) {
                     compute_log << "wall_ms=" << wall_ms << " monotonic_ms=" << monotonic_ms
                                 << " sequence=" << compute_events
                                 << " shader=0x" << std::hex << pipeline->ShaderHash()
