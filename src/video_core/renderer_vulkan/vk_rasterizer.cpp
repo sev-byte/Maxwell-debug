@@ -518,6 +518,17 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     CaptureSkyrimPipelineDiagnostic(*pipeline, *maxwell3d, is_indexed,
                                      static_cast<u32>(maxwell3d->draw_manager.draw_state.topology),
                                      attribute_handle_runs);
+
+    // Destructive diagnostic: suppress every draw using the suspected Skyrim lighting
+    // fragment shader. If the scene loses its lighting, this confirms the shader is
+    // contributing to it; no guest descriptors or buffers are modified.
+    constexpr u64 SKYRIM_TARGET_SHADER_HASH = 0xde45de8572884068ULL;
+    if (pipeline->FragmentShaderHash() == SKYRIM_TARGET_SHADER_HASH) {
+        CaptureSkyrimDrawEvent(*pipeline, "target_shader_draw_suppressed",
+                               *maxwell3d, *gpu_memory);
+        return;
+    }
+
     if (!pipeline->Configure(is_indexed))
         return;
 
