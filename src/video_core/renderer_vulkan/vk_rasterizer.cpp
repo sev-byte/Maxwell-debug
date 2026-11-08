@@ -74,7 +74,7 @@ void ResetSkyrimCaptureFilesOnce() {
         const auto monotonic_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
         const std::string session_header =
-            fmt::format("=== Skyrim diagnostic session started wall_ms={} monotonic_ms={} ===\\n",
+            fmt::format("=== Skyrim diagnostic session started wall_ms={} monotonic_ms={} ===\n",
                         wall_ms, monotonic_ms);
         for (const char* name : {"skyrim_gpu_events.log", "skyrim_compute_events.log",
                                  "skyrim_pipeline_diagnostic.txt"}) {
@@ -84,8 +84,8 @@ void ResetSkyrimCaptureFilesOnce() {
                 file.flush();
             }
         }
-        std::ofstream light_buffers(directory / "skyrim_light_buffer_capture.bin",
-                                    std::ios::binary | std::ios::trunc);
+        [[maybe_unused]] std::ofstream light_buffers(
+            directory / "skyrim_light_buffer_capture.bin", std::ios::binary | std::ios::trunc);
     });
 }
 
@@ -349,7 +349,6 @@ void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_
     static u64 sequence = 0;
     static std::ofstream event_file;
     static size_t pending_flushes = 0;
-    static bool event_file_initialized = false;
     std::scoped_lock lock{mutex};
     if (sequence >= MAX_GPU_EVENTS) {
         return;
@@ -369,8 +368,7 @@ void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_
     if (!event_file.is_open()) {
         event_file.open(path, std::ios::app);
         if (event_file.is_open()) {
-            event_file_initialized = true;
-            
+
         }
     }
     if (!event_file.is_open()) {
@@ -1014,7 +1012,6 @@ void RasterizerVulkan::DispatchCompute() {
         constexpr size_t MAX_COMPUTE_EVENTS = 250000;
         static size_t compute_events = 0;
         static std::ofstream compute_log;
-        static bool compute_log_initialized = false;
         std::scoped_lock compute_lock{compute_log_mutex};
         {
             const auto wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1030,8 +1027,7 @@ void RasterizerVulkan::DispatchCompute() {
                 if (!compute_log.is_open()) {
                     compute_log.open(path, std::ios::app);
                     if (compute_log.is_open()) {
-                        compute_log_initialized = true;
-                        
+
                     }
                 }
                 if (compute_log.is_open() && compute_events < MAX_COMPUTE_EVENTS) {
