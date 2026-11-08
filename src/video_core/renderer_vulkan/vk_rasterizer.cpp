@@ -239,6 +239,102 @@ bool IsPrimitiveRestartSupported(const Device& device, VkPrimitiveTopology topol
              device.IsPatchListPrimitiveRestartSupported()));
 }
 
+// Optional Skyrim fragment-shader isolation. Configure in the dump directory with:
+ // mode=disabled | blocklist | allowlist
+ // hashes=0x1234,0x5678
+ // Changes are read once per emulator process; restart Eden after editing.
+bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
+    struct Config {
+        std::string mode{"disabled"};
+        std::unordered_set<u64> hashes;
+    };
+    static const Config config = [] {
+        Config result;
+        const auto directory = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir);
+        const auto path = directory / "skyrim_shader_isolation.txt";
+        {
+            std::error_code error;
+            std::filesystem::create_directories(directory, error);
+        }
+        if (!std::filesystem::exists(path)) {
+            std::ofstream sample(path);
+            if (sample.is_open()) {
+                sample << "# Skyrim fragment shader isolation\n"
+                          "# mode=disabled, blocklist, or allowlist\n"
+                          "# hashes=comma-separated hexadecimal shader hashes\n"
+                          "mode=disabled\n"
+                          "hashes=\n";
+            }
+        }
+        std::ifstream file(path);
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.empty() || line[0] == '#') {
+                continue;
+            }
+            const auto separator = line.find('=');
+            if (separator == std::string::npos) {
+                continue;
+            }
+            const std::string key = line.substr(0, separator);
+            const std::string value = line.substr(separator + 1);
+            if (key == "mode") {
+                result.mode = value;
+            } else if (key == "hashes") {
+                size_t start = 0;
+                while (start < value.size()) {
+                    const size_t end = value.find(',', start);
+                    const std::string token = value.substr(
+                        start, end == std::string::npos ? std::string::npos : end - start);
+                    try {
+                        if (!token.empty()) {
+                            result.hashes.insert(std::stoull(token, nullptr, 0));
+                        }
+                    } catch (...) {
+                        LOG_WARNING(Render_Vulkan, "Invalid hash in skyrim_shader_isolation.txt: {}",
+                                    token);
+                    }
+                    if (end == std::string::npos) {
+                        break;
+                    }
+                    start = end + 1;
+                }
+            }
+        }
+        return result;
+    }();
+    if (config.mode == "blocklist") {
+        return config.hashes.contains(shader_hash);
+    }
+    if (config.mode == "allowlist") {
+        return !config.hashes.contains(shader_hash);
+    }
+    return false;
+}
+
+void LogSkippedSkyrimShader(u64 shader_hash, const Tegra::Engines::Maxwell3D& engine) {
+    static std::mutex mutex;
+    static std::ofstream file;
+    std::scoped_lock lock{mutex};
+    if (!file.is_open()) {
+        const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
+                          "skyrim_shader_isolation.log";
+        file.open(path, std::ios::out | std::ios::app);
+    }
+    if (!file.is_open()) {
+        return;
+    }
+    const auto wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto& draw = engine.draw_manager.draw_state;
+    file << "wall_ms=" << wall_ms << " action=skipped_fragment_draw shader=0x"
+         << std::hex << shader_hash << std::dec
+         << " vertex_count=" << draw.vertex_buffer.count
+         << " index_count=" << draw.index_buffer.count
+         << " instance_count=" << draw.instance_count << "\\n";
+    file.flush();
+}
+
 void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
                                const Tegra::Engines::Maxwell3D& engine,
                                const Tegra::MemoryManager& memory) {
@@ -541,6 +637,10 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
     // update engine as channel may be different.
     pipeline->SetEngine(maxwell3d, gpu_memory);
+    if (ShouldSkipSkyrimFragmentShader(pipeline->FragmentShaderHash())) {
+        LogSkippedSkyrimShader(pipeline->FragmentShaderHash(), *maxwell3d);
+        return;
+    }
     CaptureSkyrimLightBuffers(pipeline->FragmentShaderHash(), *maxwell3d, *gpu_memory);
     attribute_handle_pipeline = nullptr;
     attribute_handle_runs.clear();
