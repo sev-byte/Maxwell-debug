@@ -959,6 +959,57 @@ void RasterizerVulkan::DispatchCompute() {
 
     const auto& qmd{kepler_compute->launch_description};
     auto indirect_address = kepler_compute->GetIndirectComputeAddress();
+
+    // Bounded, observational compute trace. shared_alloc is the guest QMD allocation
+    // request; it is logged in raw units so it can be compared with the shader's
+    // translated shared-memory requirement without assuming a unit conversion here.
+    {
+        constexpr size_t MAX_COMPUTE_EVENTS = 16384;
+        static std::mutex compute_log_mutex;
+        static size_t compute_events = 0;
+        static std::ofstream compute_log;
+        std::scoped_lock compute_lock{compute_log_mutex};
+        if (compute_events < MAX_COMPUTE_EVENTS) {
+            const auto wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            const auto monotonic_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            const auto& shader_info = pipeline->ShaderInfo();
+            const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
+                              "skyrim_compute_events.log";
+            std::error_code error;
+            std::filesystem::create_directories(path.parent_path(), error);
+            if (!error) {
+                if (!compute_log.is_open()) {
+                    compute_log.open(path, std::ios::app);
+                }
+                if (compute_log.is_open()) {
+                    compute_log << "wall_ms=" << wall_ms << " monotonic_ms=" << monotonic_ms
+                                << " sequence=" << compute_events
+                                << " shader=0x" << std::hex << pipeline->ShaderHash()
+                                << std::dec << " indirect=" << static_cast<bool>(indirect_address)
+                                << " grid_x=" << qmd.grid_dim_x.Value()
+                                << " grid_y=" << qmd.grid_dim_y.Value()
+                                << " grid_z=" << qmd.grid_dim_z.Value()
+                                << " block_x=" << qmd.block_dim_x.Value()
+                                << " block_y=" << qmd.block_dim_y.Value()
+                                << " block_z=" << qmd.block_dim_z.Value()
+                                << " shared_alloc_raw=" << qmd.shared_alloc.Value()
+                                << " cbuf_mask=0x" << std::hex
+                                << qmd.const_buffer_enable_mask.Value() << std::dec
+                                << " storage_buffers=" << shader_info.storage_buffers_descriptors.size()
+                                << " textures=" << shader_info.texture_descriptors.size()
+                                << " images=" << shader_info.image_descriptors.size()
+                                << " image_buffers=" << shader_info.image_buffer_descriptors.size()
+                                << " texture_buffers=" << shader_info.texture_buffer_descriptors.size()
+                                << "\\n";
+                    if (++compute_events % 32 == 0) {
+                        compute_log.flush();
+                    }
+                }
+            }
+        }
+    }
     if (indirect_address) {
         // DispatchIndirect
         static constexpr auto sync_info = VideoCommon::ObtainBufferSynchronize::FullSynchronize;
