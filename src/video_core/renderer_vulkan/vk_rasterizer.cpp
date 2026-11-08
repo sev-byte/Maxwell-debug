@@ -306,11 +306,7 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
 void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_name,
                             const Tegra::Engines::Maxwell3D& engine,
                             const Tegra::MemoryManager& memory) {
-    constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
-    constexpr size_t MAX_EVENTS = 4096;
-    if (pipeline.FragmentShaderHash() != TARGET_SHADER_HASH) {
-        return;
-    }
+    constexpr size_t MAX_EVENTS = 16384;
     static std::mutex mutex;
     static u64 sequence = 0;
     static std::ofstream event_file;
@@ -346,8 +342,12 @@ void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_
     }
     event_file << "wall_ms=" << wall_time_ms << " monotonic_ms=" << monotonic_time_ms
                << " event_sequence=" << ++sequence << " event=" << event_name
-               << " shader=0x" << std::hex << pipeline.FragmentShaderHash()
-               << " cb2_desc32=0x" << descriptor_32 << " cb2_desc40=0x" << descriptor_40
+               << " fragment_shader=0x" << std::hex << pipeline.FragmentShaderHash()
+               << " shader_hashes=";
+    for (const u64 hash : pipeline.ShaderHashes()) {
+        event_file << "0x" << hash << ",";
+    }
+    event_file << " cb2_desc32=0x" << descriptor_32 << " cb2_desc40=0x" << descriptor_40
                << std::dec << " vertex_count=" << draw.vertex_buffer.count
                << " index_count=" << draw.index_buffer.count
                << " instance_count=" << draw.instance_count << "\n";
