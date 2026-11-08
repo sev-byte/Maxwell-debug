@@ -235,6 +235,7 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
     static std::unordered_set<u64> captured;
     static u64 sequence = 0;
     static size_t bytes_written = 0;
+    static bool capture_file_initialized = false;
 
     std::array<std::vector<u8>, 2> contents;
     RecordHeader header{
@@ -277,8 +278,14 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
     if (error) {
         return;
     }
-    if (bytes_written == 0 && std::filesystem::exists(path, error) && !error) {
-        bytes_written = static_cast<size_t>(std::filesystem::file_size(path, error));
+    if (!capture_file_initialized) {
+        std::ofstream reset_file(path, std::ios::binary | std::ios::trunc);
+        if (!reset_file.is_open()) {
+            return;
+        }
+        reset_file.close();
+        capture_file_initialized = true;
+        bytes_written = 0;
     }
     const size_t record_size = sizeof(RecordHeader) + contents[0].size() + contents[1].size();
     if (error || bytes_written + record_size > MAX_CAPTURE_FILE_SIZE) {
@@ -306,15 +313,13 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
 void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_name,
                             const Tegra::Engines::Maxwell3D& engine,
                             const Tegra::MemoryManager& memory) {
-    constexpr size_t MAX_EVENTS = 16384;
+
     static std::mutex mutex;
     static u64 sequence = 0;
     static std::ofstream event_file;
     static size_t pending_flushes = 0;
+    static bool event_file_initialized = false;
     std::scoped_lock lock{mutex};
-    if (sequence >= MAX_EVENTS) {
-        return;
-    }
     const auto wall_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     const auto monotonic_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -328,7 +333,11 @@ void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_
         return;
     }
     if (!event_file.is_open()) {
-        event_file.open(path, std::ios::app);
+        event_file.open(path, event_file_initialized ? std::ios::app : std::ios::trunc);
+        if (event_file.is_open()) {
+            event_file_initialized = true;
+            event_file << "=== Skyrim GPU draw capture started ===\\n";
+        }
     }
     if (!event_file.is_open()) {
         return;
@@ -364,16 +373,13 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
                                      u32 topology,
                                      const Runs& runs) {
     constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
-    constexpr size_t MAX_DIAGNOSTIC_LINES = 512;
+
     if (pipeline.FragmentShaderHash() != TARGET_SHADER_HASH) {
         return;
     }
     static std::mutex mutex;
     static size_t lines_written = 0;
     std::scoped_lock lock{mutex};
-    if (lines_written >= MAX_DIAGNOSTIC_LINES) {
-        return;
-    }
     const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
                       "skyrim_pipeline_diagnostic.txt";
     std::error_code error;
@@ -381,7 +387,7 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
     if (error) {
         return;
     }
-    std::ofstream file(path, std::ios::app);
+    std::ofstream file(path, lines_written == 0 ? std::ios::trunc : std::ios::app);
     if (!file.is_open()) {
         return;
     }
@@ -964,12 +970,12 @@ void RasterizerVulkan::DispatchCompute() {
     // request; it is logged in raw units so it can be compared with the shader's
     // translated shared-memory requirement without assuming a unit conversion here.
     {
-        constexpr size_t MAX_COMPUTE_EVENTS = 16384;
         static std::mutex compute_log_mutex;
         static size_t compute_events = 0;
         static std::ofstream compute_log;
+        static bool compute_log_initialized = false;
         std::scoped_lock compute_lock{compute_log_mutex};
-        if (compute_events < MAX_COMPUTE_EVENTS) {
+        {
             const auto wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
             const auto monotonic_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -981,7 +987,11 @@ void RasterizerVulkan::DispatchCompute() {
             std::filesystem::create_directories(path.parent_path(), error);
             if (!error) {
                 if (!compute_log.is_open()) {
-                    compute_log.open(path, std::ios::app);
+                    compute_log.open(path, compute_log_initialized ? std::ios::app : std::ios::trunc);
+                    if (compute_log.is_open()) {
+                        compute_log_initialized = true;
+                        compute_log << "=== Skyrim compute capture started ===\\n";
+                    }
                 }
                 if (compute_log.is_open()) {
                     compute_log << "wall_ms=" << wall_ms << " monotonic_ms=" << monotonic_ms
