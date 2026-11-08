@@ -121,6 +121,10 @@ public:
         return stage_infos[NUM_STAGES - 1];
     }
 
+    [[nodiscard]] const std::array<u64, 6>& ShaderHashes() const noexcept {
+        return key.unique_hashes;
+    }
+
     /// Handle bound to those textures by the next Configure.
     void SetAttributeHandle(u32 handle) noexcept {
         attribute_handle = handle;
