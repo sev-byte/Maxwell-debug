@@ -56,6 +56,10 @@ public:
         return static_cast<bool>(pipeline);
     }
 
+    [[nodiscard]] u64 ShaderHash() const noexcept { return shader_hash; }
+
+    [[nodiscard]] const Shader::Info& ShaderInfo() const noexcept { return info; }
+
 private:
     const Device& device;
     vk::PipelineCache& pipeline_cache;
