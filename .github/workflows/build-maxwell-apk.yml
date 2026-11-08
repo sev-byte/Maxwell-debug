@@ -6,6 +6,7 @@ on:
     branches:
       - skyrim-light-buffer-capture
       - skyrim-timestamped-gpu-events
+      - skyrim-target-shader-disable-test
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
