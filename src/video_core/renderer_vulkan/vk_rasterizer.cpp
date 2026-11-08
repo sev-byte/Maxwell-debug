@@ -243,15 +243,6 @@ bool IsPrimitiveRestartSupported(const Device& device, VkPrimitiveTopology topol
  // mode=disabled | blocklist | allowlist
  // hashes=0x1234,0x5678
  // Changes are read once per emulator process; restart Eden after editing.
-// Aggressive isolation for the persistent non-fragment shader stream observed in
-// Skyrim captures. This hash appears in pipeline.ShaderHashes() while the
-// fragment-shader slot is zero, so it must be checked independently.
-bool ShouldSkipSkyrimOtherStage(const GraphicsPipeline& pipeline) {
-    constexpr u64 TARGET_SHADER_HASH = 0xef72ae49f72bb0ebULL;
-    const auto hashes = pipeline.ShaderHashes();
-    return std::find(hashes.begin(), hashes.end(), TARGET_SHADER_HASH) != hashes.end();
-}
-
 bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
     struct Config {
         std::string mode{"disabled"};
@@ -314,6 +305,7 @@ bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
             // even when an existing config file from the previous APK is present.
             result.hashes.insert(0x58484bdeb060359cULL);
             result.hashes.insert(0x0ecddefb0ea6d50cULL);
+            result.hashes.insert(0xde45de8572884068ULL);
         }
         return result;
     }();
@@ -651,10 +643,6 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
     // update engine as channel may be different.
     pipeline->SetEngine(maxwell3d, gpu_memory);
-    if (ShouldSkipSkyrimOtherStage(*pipeline)) {
-        LogSkippedSkyrimShader(0xef72ae49f72bb0ebULL, *maxwell3d);
-        return;
-    }
     if (ShouldSkipSkyrimFragmentShader(pipeline->FragmentShaderHash())) {
         LogSkippedSkyrimShader(pipeline->FragmentShaderHash(), *maxwell3d);
         return;
