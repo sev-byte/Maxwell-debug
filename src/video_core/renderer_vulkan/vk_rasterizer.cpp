@@ -291,8 +291,7 @@ bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
                             result.hashes.insert(std::stoull(token, nullptr, 0));
                         }
                     } catch (...) {
-                        LOG_WARNING(Render_Vulkan, "Invalid hash in skyrim_shader_isolation.txt: {}",
-                                    token);
+                        // Ignore malformed entries; valid hashes remain usable.
                     }
                     if (end == std::string::npos) {
                         break;
