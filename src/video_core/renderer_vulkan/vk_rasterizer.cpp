@@ -336,7 +336,7 @@ void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_
         event_file.open(path, event_file_initialized ? std::ios::app : std::ios::trunc);
         if (event_file.is_open()) {
             event_file_initialized = true;
-            event_file << "=== Skyrim GPU draw capture started ===\\n";
+            event_file << "=== Skyrim GPU draw capture started ===\n";
         }
     }
     if (!event_file.is_open()) {
@@ -966,7 +966,7 @@ void RasterizerVulkan::DispatchCompute() {
     const auto& qmd{kepler_compute->launch_description};
     auto indirect_address = kepler_compute->GetIndirectComputeAddress();
 
-    // Bounded, observational compute trace. shared_alloc is the guest QMD allocation
+    // Observational compute trace, recorded until process shutdown. shared_alloc is the guest QMD allocation
     // request; it is logged in raw units so it can be compared with the shader's
     // translated shared-memory requirement without assuming a unit conversion here.
     {
@@ -990,7 +990,7 @@ void RasterizerVulkan::DispatchCompute() {
                     compute_log.open(path, compute_log_initialized ? std::ios::app : std::ios::trunc);
                     if (compute_log.is_open()) {
                         compute_log_initialized = true;
-                        compute_log << "=== Skyrim compute capture started ===\\n";
+                        compute_log << "=== Skyrim compute capture started ===\n";
                     }
                 }
                 if (compute_log.is_open()) {
