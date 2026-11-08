@@ -60,6 +60,35 @@ using VideoCommon::ImageViewType;
 
 
 namespace {
+void ResetSkyrimCaptureFilesOnce() {
+    static std::once_flag reset_once;
+    std::call_once(reset_once, [] {
+        const auto directory = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir);
+        std::error_code error;
+        std::filesystem::create_directories(directory, error);
+        if (error) {
+            return;
+        }
+        const auto wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        const auto monotonic_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        const std::string session_header =
+            fmt::format("=== Skyrim diagnostic session started wall_ms={} monotonic_ms={} ===\\n",
+                        wall_ms, monotonic_ms);
+        for (const char* name : {"skyrim_gpu_events.log", "skyrim_compute_events.log",
+                                 "skyrim_pipeline_diagnostic.txt"}) {
+            std::ofstream file(directory / name, std::ios::out | std::ios::trunc);
+            if (file.is_open()) {
+                file << session_header;
+                file.flush();
+            }
+        }
+        std::ofstream light_buffers(directory / "skyrim_light_buffer_capture.bin",
+                                    std::ios::binary | std::ios::trunc);
+    });
+}
+
 struct DrawParams {
     u32 base_instance;
     u32 num_instances;
@@ -212,6 +241,7 @@ bool IsPrimitiveRestartSupported(const Device& device, VkPrimitiveTopology topol
 void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
                                const Tegra::Engines::Maxwell3D& engine,
                                const Tegra::MemoryManager& memory) {
+    ResetSkyrimCaptureFilesOnce();
     constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
     constexpr size_t MAX_BUFFER_SIZE = 0x10000;
     constexpr size_t MAX_CAPTURE_FILE_SIZE = 16 * 1024 * 1024;
@@ -313,13 +343,17 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
 void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_name,
                             const Tegra::Engines::Maxwell3D& engine,
                             const Tegra::MemoryManager& memory) {
-
+    ResetSkyrimCaptureFilesOnce();
+    constexpr u64 MAX_GPU_EVENTS = 250000;
     static std::mutex mutex;
     static u64 sequence = 0;
     static std::ofstream event_file;
     static size_t pending_flushes = 0;
     static bool event_file_initialized = false;
     std::scoped_lock lock{mutex};
+    if (sequence >= MAX_GPU_EVENTS) {
+        return;
+    }
     const auto wall_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     const auto monotonic_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -333,10 +367,10 @@ void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_
         return;
     }
     if (!event_file.is_open()) {
-        event_file.open(path, event_file_initialized ? std::ios::app : std::ios::trunc);
+        event_file.open(path, std::ios::app);
         if (event_file.is_open()) {
             event_file_initialized = true;
-            event_file << "=== Skyrim GPU draw capture started ===\n";
+            
         }
     }
     if (!event_file.is_open()) {
@@ -372,6 +406,8 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
                                      bool is_indexed,
                                      u32 topology,
                                      const Runs& runs) {
+    ResetSkyrimCaptureFilesOnce();
+    constexpr size_t MAX_PIPELINE_RECORDS = 20000;
     constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
 
     if (pipeline.FragmentShaderHash() != TARGET_SHADER_HASH) {
@@ -380,6 +416,9 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
     static std::mutex mutex;
     static size_t lines_written = 0;
     std::scoped_lock lock{mutex};
+    if (lines_written >= MAX_PIPELINE_RECORDS) {
+        return;
+    }
     const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
                       "skyrim_pipeline_diagnostic.txt";
     std::error_code error;
@@ -387,7 +426,7 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
     if (error) {
         return;
     }
-    std::ofstream file(path, lines_written == 0 ? std::ios::trunc : std::ios::app);
+    std::ofstream file(path, std::ios::app);
     if (!file.is_open()) {
         return;
     }
@@ -950,6 +989,7 @@ void RasterizerVulkan::Clear(u32 layer_count) {
 }
 
 void RasterizerVulkan::DispatchCompute() {
+    ResetSkyrimCaptureFilesOnce();
     FlushWork();
     gpu_memory->FlushCaching();
 
@@ -971,6 +1011,7 @@ void RasterizerVulkan::DispatchCompute() {
     // translated shared-memory requirement without assuming a unit conversion here.
     {
         static std::mutex compute_log_mutex;
+        constexpr size_t MAX_COMPUTE_EVENTS = 250000;
         static size_t compute_events = 0;
         static std::ofstream compute_log;
         static bool compute_log_initialized = false;
@@ -987,13 +1028,13 @@ void RasterizerVulkan::DispatchCompute() {
             std::filesystem::create_directories(path.parent_path(), error);
             if (!error) {
                 if (!compute_log.is_open()) {
-                    compute_log.open(path, compute_log_initialized ? std::ios::app : std::ios::trunc);
+                    compute_log.open(path, std::ios::app);
                     if (compute_log.is_open()) {
                         compute_log_initialized = true;
-                        compute_log << "=== Skyrim compute capture started ===\n";
+                        
                     }
                 }
-                if (compute_log.is_open()) {
+                if (compute_log.is_open() && compute_events < MAX_COMPUTE_EVENTS) {
                     compute_log << "wall_ms=" << wall_ms << " monotonic_ms=" << monotonic_ms
                                 << " sequence=" << compute_events
                                 << " shader=0x" << std::hex << pipeline->ShaderHash()
