@@ -262,8 +262,8 @@ bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
                 sample << "# Skyrim fragment shader isolation\n"
                           "# mode=disabled, blocklist, or allowlist\n"
                           "# hashes=comma-separated hexadecimal shader hashes\n"
-                          "mode=disabled\n"
-                          "hashes=\n";
+                          "mode=blocklist\n"
+                          "hashes=0x331f0de4dc79b7ba,0xa9902b0ebbfc483c\n";
             }
         }
         std::ifstream file(path);
