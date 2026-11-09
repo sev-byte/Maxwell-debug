@@ -310,7 +310,6 @@ bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
             result.hashes.insert(0x4d990c93e7a34eb9ULL);
             result.hashes.insert(0xf6aff90aba76ac9cULL);
             result.hashes.insert(0x1d5b03790f00dff9ULL);
-            result.hashes.insert(0xc7b9f2e70047771eULL);
         }
         return result;
     }();
