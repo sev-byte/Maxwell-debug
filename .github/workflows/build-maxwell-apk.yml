@@ -8,6 +8,8 @@ on:
       - skyrim-timestamped-gpu-events
       - skyrim-full-pipeline-capture
       - skyrim-shader-isolation
+      - skyrim-test-d1-two-candidates
+      - skyrim-test-d2-restore-earlier
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
