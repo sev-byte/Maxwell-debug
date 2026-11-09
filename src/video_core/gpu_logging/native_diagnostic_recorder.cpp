@@ -4,9 +4,7 @@
 #include "video_core/gpu_logging/native_diagnostic_recorder.h"
 
 #include <chrono>
-#include <filesystem>
 #include <functional>
-#include <thread>
 
 #include "common/fs/file.h"
 #include "common/fs/fs.h"
@@ -15,9 +13,10 @@
 
 namespace GPU::Logging {
 namespace {
-constexpr u32 Magic = 0x4E444544; // "DEDN" in little-endian byte order
+constexpr u32 Magic = 0x4E444544;
 constexpr u16 FormatVersion = 1;
 constexpr std::size_t ChunkLimit = 256 * 1024;
+constexpr auto WriterWakeInterval = std::chrono::milliseconds(250);
 
 struct FileHeader {
     u32 magic;
@@ -45,7 +44,6 @@ u64 MonotonicNowNs() {
 }
 
 u32 HashBytes(const std::vector<u8>& bytes) {
-    // FNV-1a checksum detects truncated or corrupted chunks; it is not cryptographic.
     u32 hash = 2166136261u;
     for (const u8 byte : bytes) {
         hash = (hash ^ byte) * 16777619u;
@@ -76,19 +74,14 @@ bool NativeDiagnosticRecorder::Initialize() {
         return false;
     }
 
-    const auto path = directory / "native_events.bin.zst";
+    // A unique file avoids overwriting a previous diagnostic session.
+    const auto path = directory / ("native_events_" + std::to_string(WallNowNs()) + ".bin.zst");
     file = std::make_unique<IOFile>(path, FileAccessMode::Write, FileType::BinaryFile);
     if (!file->IsOpen()) {
         file.reset();
         failed = true;
         return false;
     }
-
-    chunk.clear();
-    chunk.reserve(ChunkLimit);
-    sequence = 0;
-    dropped_events = 0;
-    failed = false;
 
     const FileHeader header{
         .magic = Magic,
@@ -104,102 +97,164 @@ bool NativeDiagnosticRecorder::Initialize() {
         return false;
     }
 
+    queue.clear();
+    sequence = 0;
+    dropped_events = 0;
+    stopping = false;
+    failed = false;
     initialized = true;
+
     DiagnosticEvent start{
         .type = static_cast<u16>(DiagnosticEventType::SessionStart),
         .sequence = ++sequence,
         .wall_time_ns = WallNowNs(),
         .monotonic_time_ns = MonotonicNowNs(),
     };
-    chunk.insert(chunk.end(), reinterpret_cast<const u8*>(&start),
-                 reinterpret_cast<const u8*>(&start) + sizeof(start));
+    queue.push_back(start);
+
+    try {
+        writer = std::thread(&NativeDiagnosticRecorder::WriterLoop, this);
+    } catch (...) {
+        initialized = false;
+        file->Close();
+        file.reset();
+        failed = true;
+        queue.clear();
+        return false;
+    }
     return true;
 }
 
 void NativeDiagnosticRecorder::Record(DiagnosticEventType type, u64 frame_id,
                                       u64 object_a, u64 object_b, u64 value_a,
                                       u64 value_b, u16 flags) noexcept {
-    std::scoped_lock lock{mutex};
-    if (!initialized || failed) {
-        ++dropped_events;
-        return;
-    }
+    {
+        std::scoped_lock lock{mutex};
+        if (!initialized || stopping || failed) {
+            ++dropped_events;
+            return;
+        }
+        if (queue.size() >= MaxQueuedEvents) {
+            ++dropped_events;
+            return;
+        }
 
-    const auto now_wall = WallNowNs();
-    const auto now_mono = MonotonicNowNs();
-    const DiagnosticEvent event{
-        .type = static_cast<u16>(type),
-        .flags = flags,
-        .thread_id = static_cast<u32>(std::hash<std::thread::id>{}(std::this_thread::get_id())),
-        .sequence = ++sequence,
-        .wall_time_ns = now_wall,
-        .monotonic_time_ns = now_mono,
-        .frame_id = frame_id,
-        .object_a = object_a,
-        .object_b = object_b,
-        .value_a = value_a,
-        .value_b = value_b,
-    };
-
-    const auto* begin = reinterpret_cast<const u8*>(&event);
-    chunk.insert(chunk.end(), begin, begin + sizeof(event));
-    if (chunk.size() >= ChunkLimit && !FlushChunkLocked()) {
-        failed = true;
-        ++dropped_events;
+        queue.push_back(DiagnosticEvent{
+            .type = static_cast<u16>(type),
+            .flags = flags,
+            .thread_id = static_cast<u32>(
+                std::hash<std::thread::id>{}(std::this_thread::get_id())),
+            .sequence = ++sequence,
+            .wall_time_ns = WallNowNs(),
+            .monotonic_time_ns = MonotonicNowNs(),
+            .frame_id = frame_id,
+            .object_a = object_a,
+            .object_b = object_b,
+            .value_a = value_a,
+            .value_b = value_b,
+        });
     }
+    wake_writer.notify_one();
 }
 
-bool NativeDiagnosticRecorder::FlushChunkLocked() noexcept {
-    if (!file || chunk.empty()) {
+bool NativeDiagnosticRecorder::WriteChunk(const std::vector<u8>& events) noexcept {
+    if (!file || events.empty()) {
         return true;
     }
 
-    const auto compressed = Common::Compression::CompressDataZSTD(
-        chunk.data(), chunk.size(), 3);
+    const auto compressed =
+        Common::Compression::CompressDataZSTD(events.data(), events.size(), 3);
     if (compressed.empty()) {
         return false;
     }
 
     const ChunkHeader header{
-        .magic = 0x4B4E4843, // "CHNK"
-        .uncompressed_size = static_cast<u32>(chunk.size()),
+        .magic = 0x4B4E4843,
+        .uncompressed_size = static_cast<u32>(events.size()),
         .compressed_size = static_cast<u32>(compressed.size()),
-        .checksum = HashBytes(chunk),
+        .checksum = HashBytes(events),
     };
     if (file->Write(header) != 1 || file->Write(compressed) != compressed.size()) {
         return false;
     }
     file->Flush();
-    chunk.clear();
     return true;
 }
 
-void NativeDiagnosticRecorder::Shutdown() noexcept {
-    std::scoped_lock lock{mutex};
-    if (!file) {
-        initialized = false;
-        return;
-    }
+void NativeDiagnosticRecorder::WriterLoop() noexcept {
+    std::vector<u8> chunk;
+    chunk.reserve(ChunkLimit);
 
-    if (initialized && !failed) {
-        DiagnosticEvent end{
-            .type = static_cast<u16>(DiagnosticEventType::SessionEnd),
-            .sequence = ++sequence,
-            .wall_time_ns = WallNowNs(),
-            .monotonic_time_ns = MonotonicNowNs(),
-            .value_a = dropped_events,
-        };
-        const auto* begin = reinterpret_cast<const u8*>(&end);
-        chunk.insert(chunk.end(), begin, begin + sizeof(end));
-        if (!FlushChunkLocked()) {
-            failed = true;
+    for (;;) {
+        std::deque<DiagnosticEvent> batch;
+        bool should_stop = false;
+        {
+            std::unique_lock lock{mutex};
+            wake_writer.wait_for(lock, WriterWakeInterval,
+                                 [this] { return !queue.empty() || stopping; });
+            while (!queue.empty() &&
+                   batch.size() < ChunkLimit / sizeof(DiagnosticEvent)) {
+                batch.push_back(queue.front());
+                queue.pop_front();
+            }
+            should_stop = stopping && queue.empty();
+        }
+
+        for (const auto& event : batch) {
+            const auto* begin = reinterpret_cast<const u8*>(&event);
+            chunk.insert(chunk.end(), begin, begin + sizeof(event));
+        }
+
+        if (chunk.size() >= ChunkLimit || (should_stop && !chunk.empty())) {
+            if (!WriteChunk(chunk)) {
+                std::scoped_lock lock{mutex};
+                failed = true;
+                dropped_events += queue.size();
+                queue.clear();
+                chunk.clear();
+            } else {
+                chunk.clear();
+            }
+        }
+
+        if (should_stop) {
+            break;
         }
     }
 
-    file->Flush();
-    file->Close();
-    file.reset();
-    initialized = false;
+    if (file) {
+        file->Flush();
+        file->Close();
+        file.reset();
+    }
+}
+
+void NativeDiagnosticRecorder::Shutdown() noexcept {
+    {
+        std::scoped_lock lock{mutex};
+        if (!initialized && !writer.joinable()) {
+            return;
+        }
+        if (initialized && !failed) {
+            if (queue.size() < MaxQueuedEvents) {
+                queue.push_back(DiagnosticEvent{
+                    .type = static_cast<u16>(DiagnosticEventType::SessionEnd),
+                    .sequence = ++sequence,
+                    .wall_time_ns = WallNowNs(),
+                    .monotonic_time_ns = MonotonicNowNs(),
+                    .value_a = dropped_events,
+                });
+            } else {
+                ++dropped_events;
+            }
+        }
+        initialized = false;
+        stopping = true;
+    }
+    wake_writer.notify_one();
+    if (writer.joinable()) {
+        writer.join();
+    }
 }
 
 bool NativeDiagnosticRecorder::IsInitialized() const noexcept {
