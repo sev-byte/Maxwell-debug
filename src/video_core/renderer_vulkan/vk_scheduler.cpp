@@ -95,9 +95,8 @@ void Scheduler::DispatchWork() {
 
 void Scheduler::BeginRenderPassImpl(const Framebuffer* framebuffer, VkRenderPass renderpass,
                                     const VkClearValue* clear_values, u32 clear_value_count) {
-    LOG_INFO(Render_Vulkan, "SKYRIM_RENDERPASS_BEGIN framebuffer={} renderpass={} clear_values={}",
-             fmt::ptr(framebuffer), fmt::ptr(reinterpret_cast<const void*>(renderpass)),
-             clear_value_count);
+    LOG_INFO(Render_Vulkan, "SKYRIM_RENDERPASS_BEGIN active_before={} clear_values={}",
+             state.renderpass != VK_NULL_HANDLE, clear_value_count);
     const VkFramebuffer framebuffer_handle = framebuffer->Handle();
     const VkExtent2D render_area = framebuffer->RenderArea();
     state.renderpass = renderpass;
