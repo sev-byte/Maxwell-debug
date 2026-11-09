@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <thread>
 
 #include "common/fs/file.h"
