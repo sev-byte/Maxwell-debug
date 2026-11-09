@@ -303,11 +303,6 @@ bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
         if (result.mode == "blocklist") {
             // Keep the two newly identified persistent fragment shaders blocked
             // even when an existing config file from the previous APK is present.
-            result.hashes.insert(0x58484bdeb060359cULL);
-            result.hashes.insert(0x0ecddefb0ea6d50cULL);
-            result.hashes.insert(0xde45de8572884068ULL);
-            // Test E: isolate one additional candidate from the pre-nuke baseline.
-            result.hashes.insert(0x4d990c93e7a34eb9ULL);
         }
         return result;
     }();
