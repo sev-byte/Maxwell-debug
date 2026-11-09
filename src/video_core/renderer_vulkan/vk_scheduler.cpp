@@ -16,6 +16,7 @@
 #include "common/settings.h"
 #include "common/thread.h"
 #include "video_core/gpu_logging/gpu_logging.h"
+#include "video_core/gpu_logging/native_diagnostic_recorder.h"
 #include "video_core/renderer_vulkan/vk_command_pool.h"
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
 #include "video_core/renderer_vulkan/vk_master_semaphore.h"
@@ -100,6 +101,11 @@ void Scheduler::BeginRenderPassImpl(const Framebuffer* framebuffer, VkRenderPass
     state.renderpass = renderpass;
     state.framebuffer = framebuffer_handle;
     state.render_area = render_area;
+
+    GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+        GPU::Logging::DiagnosticEventType::RenderPassBegin, 0, 0, 0,
+        (static_cast<u64>(render_area.width) << 32) | render_area.height,
+        (static_cast<u64>(framebuffer->NumImages()) << 32) | clear_value_count);
 
     if (GPU::Logging::IsActive() && Settings::values.gpu_log_vulkan_calls.GetValue()) {
         const std::string render_pass_info =
@@ -408,6 +414,9 @@ void Scheduler::EndRenderPass()
         }
 
         query_cache->CounterClose(VideoCommon::QueryType::StreamingByteCount);
+
+        GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+            GPU::Logging::DiagnosticEventType::RenderPassEnd);
 
         // Log render pass end
         if (GPU::Logging::IsActive() &&
