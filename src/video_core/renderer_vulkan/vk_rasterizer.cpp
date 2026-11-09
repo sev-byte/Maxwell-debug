@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -1428,12 +1429,18 @@ void RasterizerVulkan::WaitForIdle() {
 }
 
 void RasterizerVulkan::FragmentBarrier() {
-    // We already put barriers when a render pass finishes
+    static std::atomic<u64> sequence{0};
+    LOG_INFO(Render_Vulkan, "SKYRIM_CACHE_BARRIER seq={} type=fragment renderpass_active={}",
+             ++sequence, scheduler.IsRenderPassActive());
+    // Preserve the existing implementation; diagnostic only.
     scheduler.RequestOutsideRenderPassOperationContext();
 }
 
 void RasterizerVulkan::TiledCacheBarrier() {
-    // TODO: Implementing tiled barriers requires rewriting a good chunk of the Vulkan backend
+    static std::atomic<u64> sequence{0};
+    LOG_INFO(Render_Vulkan, "SKYRIM_CACHE_BARRIER seq={} type=tiled_cache renderpass_active={}",
+             ++sequence, scheduler.IsRenderPassActive());
+    // Preserve the existing implementation; diagnostic only.
 }
 
 void RasterizerVulkan::FlushCommands() {
