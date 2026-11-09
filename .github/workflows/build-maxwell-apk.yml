@@ -8,6 +8,10 @@ on:
       - skyrim-timestamped-gpu-events
       - skyrim-full-pipeline-capture
       - skyrim-shader-isolation
+      - skyrim-diag-cache-barriers
+      - skyrim-diag-shader-inputs
+      - skyrim-diag-depth-stencil
+      - skyrim-diag-sync-renderpass
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
