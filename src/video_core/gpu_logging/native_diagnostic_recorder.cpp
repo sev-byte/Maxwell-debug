@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <functional>
+#include <string>
 
 #include "common/fs/file.h"
 #include "common/fs/fs.h"
@@ -75,7 +76,7 @@ bool NativeDiagnosticRecorder::Initialize() {
     }
 
     // A unique file avoids overwriting a previous diagnostic session.
-    const auto path = directory / ("native_events_" + std::to_string(WallNowNs()) + ".bin.zst");
+    const auto path = directory / ("native_events_" + std::to_string(WallNowNs()) + ".edlog");
     file = std::make_unique<IOFile>(path, FileAccessMode::Write, FileType::BinaryFile);
     if (!file->IsOpen()) {
         file.reset();
