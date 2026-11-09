@@ -263,7 +263,7 @@ bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
                           "# mode=disabled, blocklist, or allowlist\n"
                           "# hashes=comma-separated hexadecimal shader hashes\n"
                           "mode=blocklist\n"
-                          "hashes=0x331f0de4dc79b7ba,0xa9902b0ebbfc483c\n";
+                          "hashes=0x331f0de4dc79b7ba,0xa9902b0ebbfc483c,0x58484bdeb060359c,0x0ecddefb0ea6d50c,0xde45de8572884068,0x67b456c4a4e90a7f,0xad7055bed057c0a7,0xf6aff90aba76ac9c,0x1d5b03790f00dff9,0xc7b9f2e70047771e\n";
             }
         }
         std::ifstream file(path);
