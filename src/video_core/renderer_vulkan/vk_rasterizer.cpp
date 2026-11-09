@@ -244,74 +244,8 @@ bool IsPrimitiveRestartSupported(const Device& device, VkPrimitiveTopology topol
  // hashes=0x1234,0x5678
  // Changes are read once per emulator process; restart Eden after editing.
 bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
-    struct Config {
-        std::string mode{"disabled"};
-        std::unordered_set<u64> hashes;
-    };
-    static const Config config = [] {
-        Config result;
-        const auto directory = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir);
-        const auto path = directory / "skyrim_shader_isolation.txt";
-        {
-            std::error_code error;
-            std::filesystem::create_directories(directory, error);
-        }
-        if (!std::filesystem::exists(path)) {
-            std::ofstream sample(path);
-            if (sample.is_open()) {
-                sample << "# Skyrim fragment shader isolation\n"
-                          "# mode=disabled, blocklist, or allowlist\n"
-                          "# hashes=comma-separated hexadecimal shader hashes\n"
-                          "mode=blocklist\n"
-                          "hashes=0x331f0de4dc79b7ba,0xa9902b0ebbfc483c,0x58484bdeb060359c,0x0ecddefb0ea6d50c,0xde45de8572884068,0x67b456c4a4e90a7f,0xad7055bed057c0a7,0xf6aff90aba76ac9c,0x1d5b03790f00dff9,0xc7b9f2e70047771e\n";
-            }
-        }
-        std::ifstream file(path);
-        std::string line;
-        while (std::getline(file, line)) {
-            if (line.empty() || line[0] == '#') {
-                continue;
-            }
-            const auto separator = line.find('=');
-            if (separator == std::string::npos) {
-                continue;
-            }
-            const std::string key = line.substr(0, separator);
-            const std::string value = line.substr(separator + 1);
-            if (key == "mode") {
-                result.mode = value;
-            } else if (key == "hashes") {
-                size_t start = 0;
-                while (start < value.size()) {
-                    const size_t end = value.find(',', start);
-                    const std::string token = value.substr(
-                        start, end == std::string::npos ? std::string::npos : end - start);
-                    try {
-                        if (!token.empty()) {
-                            result.hashes.insert(std::stoull(token, nullptr, 0));
-                        }
-                    } catch (...) {
-                        // Ignore malformed entries; valid hashes remain usable.
-                    }
-                    if (end == std::string::npos) {
-                        break;
-                    }
-                    start = end + 1;
-                }
-            }
-        }
-        if (result.mode == "blocklist") {
-            // Keep the two newly identified persistent fragment shaders blocked
-            // even when an existing config file from the previous APK is present.
-        }
-        return result;
-    }();
-    if (config.mode == "blocklist") {
-        return config.hashes.contains(shader_hash);
-    }
-    if (config.mode == "allowlist") {
-        return !config.hashes.contains(shader_hash);
-    }
+    // Diagnostic builds must never suppress guest shaders, regardless of stale config files.
+    (void)shader_hash;
     return false;
 }
 
@@ -501,14 +435,12 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
                                      u32 topology,
                                      const Runs& runs) {
     ResetSkyrimCaptureFilesOnce();
-    constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
-
-    if (pipeline.FragmentShaderHash() != TARGET_SHADER_HASH) {
-        return;
-    }
+    // Capture renderer-visible inputs for every fragment shader, not just the former candidate.
+    static constexpr size_t MAX_DIAGNOSTIC_LINES = 12000;
     static std::mutex mutex;
     static size_t lines_written = 0;
     std::scoped_lock lock{mutex};
+    if (lines_written >= MAX_DIAGNOSTIC_LINES) return;
     const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
                       "skyrim_pipeline_diagnostic.txt";
     std::error_code error;
