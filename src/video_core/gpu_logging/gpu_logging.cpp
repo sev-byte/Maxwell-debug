@@ -42,6 +42,11 @@ void GPULogger::Initialize(LogLevel level, DriverType driver) {
     current_level = level;
     detected_driver = driver;
 
+    const bool diagnostic_ready = NativeDiagnosticRecorder::GetInstance().Initialize();
+    if (!diagnostic_ready) {
+        LOG_ERROR(Render_Vulkan, "[GPU Logging] Native diagnostic recorder could not open Eden log directory");
+    }
+
     if (current_level == LogLevel::Off) {
         return;
     }
@@ -125,20 +130,15 @@ void GPULogger::Initialize(LogLevel level, DriverType driver) {
     // to ensure it remains active even if Vulkan device initialization fails
 
     initialized = true;
-    const bool diagnostic_ready = NativeDiagnosticRecorder::GetInstance().Initialize();
-    if (!diagnostic_ready) {
-        LOG_ERROR(Render_Vulkan, "[GPU Logging] Native diagnostic recorder could not open Eden log directory");
-    }
     LOG_INFO(Render_Vulkan, "[GPU Logging] Initialized with level: {}, driver: {}", level_name,
              driver_name);
 }
 
 void GPULogger::Shutdown() {
+    NativeDiagnosticRecorder::GetInstance().Shutdown();
     if (!initialized) {
         return;
     }
-
-    NativeDiagnosticRecorder::GetInstance().Shutdown();
 
     // Write statistics
     const auto stats = fmt::format(
