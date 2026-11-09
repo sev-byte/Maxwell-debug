@@ -4,6 +4,8 @@
 add_library(gpu_logging STATIC
     gpu_logging.cpp
     gpu_logging.h
+    native_diagnostic_recorder.cpp
+    native_diagnostic_recorder.h
     gpu_state_capture.cpp
     gpu_state_capture.h
     qualcomm_debug.cpp
