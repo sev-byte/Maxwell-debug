@@ -95,10 +95,16 @@ void Scheduler::DispatchWork() {
 
 void Scheduler::BeginRenderPassImpl(const Framebuffer* framebuffer, VkRenderPass renderpass,
                                     const VkClearValue* clear_values, u32 clear_value_count) {
-    LOG_INFO(Render_Vulkan, "SKYRIM_RENDERPASS_BEGIN active_before={} clear_values={}",
-             state.renderpass != VK_NULL_HANDLE, clear_value_count);
     const VkFramebuffer framebuffer_handle = framebuffer->Handle();
     const VkExtent2D render_area = framebuffer->RenderArea();
+    LOG_INFO(Render_Vulkan,
+             "SKYRIM_RENDERPASS_BEGIN active_before={} renderpass=0x{:x} framebuffer=0x{:x} "
+             "area={}x{} images={} clear_values={} tick={}",
+             state.renderpass != VK_NULL_HANDLE,
+             static_cast<u64>(reinterpret_cast<uintptr_t>(static_cast<VkRenderPass>(renderpass))),
+             static_cast<u64>(reinterpret_cast<uintptr_t>(framebuffer_handle)),
+             render_area.width, render_area.height, framebuffer->NumImages(),
+             clear_value_count, CurrentTick());
     state.renderpass = renderpass;
     state.framebuffer = framebuffer_handle;
     state.render_area = render_area;
@@ -404,8 +410,15 @@ void Scheduler::EndPendingOperations() {
 
 void Scheduler::EndRenderPass()
     {
-        LOG_INFO(Render_Vulkan, "SKYRIM_RENDERPASS_END active={} images={}",
-                 state.renderpass != VK_NULL_HANDLE, num_renderpass_images);
+        if (state.renderpass != VK_NULL_HANDLE) {
+            LOG_INFO(Render_Vulkan,
+                     "SKYRIM_RENDERPASS_END renderpass=0x{:x} framebuffer=0x{:x} "
+                     "area={}x{} images={} tick={}",
+                     static_cast<u64>(reinterpret_cast<uintptr_t>(state.renderpass)),
+                     static_cast<u64>(reinterpret_cast<uintptr_t>(state.framebuffer)),
+                     state.render_area.width, state.render_area.height,
+                     num_renderpass_images, CurrentTick());
+        }
         RealizeDeferredClear();
         if (!state.renderpass) {
             return;
