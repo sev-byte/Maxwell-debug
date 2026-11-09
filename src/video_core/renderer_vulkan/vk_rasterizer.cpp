@@ -306,9 +306,8 @@ bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
             result.hashes.insert(0x58484bdeb060359cULL);
             result.hashes.insert(0x0ecddefb0ea6d50cULL);
             result.hashes.insert(0xde45de8572884068ULL);
-            // Test C: cumulative isolation of the remaining persistent fragment candidates.
+            // Test E: isolate one additional candidate from the pre-nuke baseline.
             result.hashes.insert(0x4d990c93e7a34eb9ULL);
-            result.hashes.insert(0xf6aff90aba76ac9cULL);
         }
         return result;
     }();
