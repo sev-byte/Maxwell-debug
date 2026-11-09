@@ -3,9 +3,12 @@
 
 #pragma once
 
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 #include "common/common_types.h"
@@ -14,7 +17,6 @@ namespace Common::FS { class IOFile; }
 
 namespace GPU::Logging {
 
-// Compact, versioned binary event stream. All timestamps are nanoseconds.
 enum class DiagnosticEventType : u16 {
     SessionStart = 1,
     SessionEnd = 2,
@@ -50,8 +52,6 @@ public:
     NativeDiagnosticRecorder(const NativeDiagnosticRecorder&) = delete;
     NativeDiagnosticRecorder& operator=(const NativeDiagnosticRecorder&) = delete;
 
-    // Opens a versioned binary stream beneath EdenPath::LogDir/diagnostic.
-    // Returns false if the directory or file cannot be created.
     bool Initialize();
     void Record(DiagnosticEventType type, u64 frame_id = 0, u64 object_a = 0,
                 u64 object_b = 0, u64 value_a = 0, u64 value_b = 0,
@@ -63,13 +63,19 @@ private:
     NativeDiagnosticRecorder() = default;
     ~NativeDiagnosticRecorder();
 
-    bool FlushChunkLocked() noexcept;
+    void WriterLoop() noexcept;
+    bool WriteChunk(const std::vector<u8>& events) noexcept;
+
+    static constexpr std::size_t MaxQueuedEvents = 65536;
     mutable std::mutex mutex;
+    std::condition_variable wake_writer;
+    std::deque<DiagnosticEvent> queue;
     std::unique_ptr<Common::FS::IOFile> file;
-    std::vector<u8> chunk;
+    std::thread writer;
     u64 sequence = 0;
     u64 dropped_events = 0;
     bool initialized = false;
+    bool stopping = false;
     bool failed = false;
 };
 
