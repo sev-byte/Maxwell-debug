@@ -8,6 +8,7 @@ on:
       - skyrim-timestamped-gpu-events
       - skyrim-full-pipeline-capture
       - skyrim-shader-isolation
+      - skyrim-isolation-de45-only
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
