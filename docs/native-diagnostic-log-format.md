@@ -57,6 +57,8 @@ These are recorder conventions, not Vulkan API guarantees. Treat raw values as u
 | 0x21 | Image destroyed | VkImage | guest GPU address | width | height/depth packed as above |
 | 0x22 | Buffer-to-image upload | source VkBuffer | destination VkImage | copy region count | source offset |
 
+| 0x30 | Image layout transition | VkImage | old layout in high 32 bits, new layout in low 32 bits | source access mask | destination access mask |
+
 Other ResourceUpdate flag values are defined at their individual call sites.
 
 ### Synchronization flags
