@@ -426,10 +426,9 @@ void RasterizerVulkan::DrawIndirect() {
                               buffer_obj = buffer->Handle(), offset_base, offset,
                               params](vk::CommandBuffer cmdbuf) {
                 GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                    GPU::Logging::DiagnosticEventType::GraphicsDraw,
+                    GPU::Logging::DiagnosticEventType::GraphicsDraw, 0,
                     reinterpret_cast<u64>(buffer_obj), reinterpret_cast<u64>(draw_buffer_obj),
-                    offset, offset_base,
-                    (static_cast<u64>(params.max_draw_counts) << 32) | params.stride,
+                    offset, (static_cast<u64>(params.max_draw_counts) << 32) | params.stride,
                     static_cast<u16>((params.is_indexed ? 1 : 0) | 2 | 8));
                 if (params.is_indexed) {
                     cmdbuf.DrawIndexedIndirectCount(
