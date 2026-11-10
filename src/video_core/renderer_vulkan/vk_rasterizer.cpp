@@ -410,6 +410,9 @@ void RasterizerVulkan::DrawIndirect() {
         if (params.is_byte_count) {
             scheduler.Record([buffer_obj = buffer->Handle(), offset,
                               stride = params.stride](vk::CommandBuffer cmdbuf) {
+                GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+                    GPU::Logging::DiagnosticEventType::GraphicsDraw, 0,
+                    reinterpret_cast<u64>(buffer_obj), offset, 1, stride, 4);
                 cmdbuf.DrawIndirectByteCountEXT(1, 0, buffer_obj, offset, 0,
                                                 static_cast<u32>(stride));
             });
@@ -422,6 +425,12 @@ void RasterizerVulkan::DrawIndirect() {
             scheduler.Record([draw_buffer_obj = draw_buffer->Handle(),
                               buffer_obj = buffer->Handle(), offset_base, offset,
                               params](vk::CommandBuffer cmdbuf) {
+                GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+                    GPU::Logging::DiagnosticEventType::GraphicsDraw,
+                    reinterpret_cast<u64>(buffer_obj), reinterpret_cast<u64>(draw_buffer_obj),
+                    offset, offset_base,
+                    (static_cast<u64>(params.max_draw_counts) << 32) | params.stride,
+                    static_cast<u16>((params.is_indexed ? 1 : 0) | 2 | 8));
                 if (params.is_indexed) {
                     cmdbuf.DrawIndexedIndirectCount(
                         buffer_obj, offset, draw_buffer_obj, offset_base,
