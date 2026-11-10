@@ -422,7 +422,7 @@ void PresentManager::CopyToSwapchain(Frame* frame) {
             // Draw to swapchain and record completion against the render frame.
             CopyToSwapchainImpl(frame);
             GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                GPU::Logging::DiagnosticEventType::FramePresentComplete,
+                GPU::Logging::DiagnosticEventType::FramePresentSubmitted,
                 frame->diagnostic_frame_id, frame->index, 0, 1);
             return;
         } catch (const vk::Exception& except) {
@@ -436,7 +436,7 @@ void PresentManager::CopyToSwapchain(Frame* frame) {
 
     DiscardFrame(frame);
     GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-        GPU::Logging::DiagnosticEventType::FramePresentComplete,
+        GPU::Logging::DiagnosticEventType::FramePresentSubmitted,
         frame->diagnostic_frame_id, frame->index, 0, 0);
 }
 
