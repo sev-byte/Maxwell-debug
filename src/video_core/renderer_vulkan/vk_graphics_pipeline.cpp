@@ -570,6 +570,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
 
 bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
                                      const RenderAreaPushConstant& render_area) {
+    const u64 diagnostic_frame = scheduler.DiagnosticFrameId();
     const void* const descriptor_data{guest_descriptor_queue.UpdateData()};
 
     VkDeviceSize descriptor_buffer_offset{};
@@ -639,7 +640,7 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
                       descriptor_buffer_offset, descriptor_buffer_chunk, bind_descriptor_buffer,
                       rescaling_data = rescaling.Data(), is_rescaling, update_rescaling,
                       uses_render_area = render_area.uses_render_area,
-                      render_area_data = render_area.words](vk::CommandBuffer cmdbuf) {
+                      render_area_data = render_area.words, diagnostic_frame](vk::CommandBuffer cmdbuf) {
         if (bind_descriptor_buffer) {
             const VkDescriptorBufferBindingInfoEXT binding_info{
                 descriptor_buffer_ring.BindingInfo(descriptor_buffer_chunk)};
@@ -651,7 +652,7 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
             }
             cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline);
             GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                GPU::Logging::DiagnosticEventType::GraphicsPipelineBind, 0, pipeline_hash,
+                GPU::Logging::DiagnosticEventType::GraphicsPipelineBind, diagnostic_frame, pipeline_hash,
                 reinterpret_cast<u64>(*pipeline));
         }
         cmdbuf.PushConstants(*pipeline_layout, VK_SHADER_STAGE_ALL_GRAPHICS,
@@ -677,13 +678,13 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
             cmdbuf.SetDescriptorBufferOffsetsEXT(VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline_layout,
                                                  0, buffer_index, descriptor_buffer_offset);
             GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                GPU::Logging::DiagnosticEventType::DescriptorBufferBind, 0, pipeline_hash,
+                GPU::Logging::DiagnosticEventType::DescriptorBufferBind, diagnostic_frame, pipeline_hash,
                 descriptor_buffer_chunk, descriptor_buffer_offset);
         } else if (uses_push_descriptor) {
             cmdbuf.PushDescriptorSetWithTemplateKHR(*descriptor_update_template, *pipeline_layout,
                                                     0, descriptor_data);
             GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                GPU::Logging::DiagnosticEventType::PushDescriptorBind, 0, pipeline_hash,
+                GPU::Logging::DiagnosticEventType::PushDescriptorBind, diagnostic_frame, pipeline_hash,
                 reinterpret_cast<u64>(*pipeline_layout), num_descriptor_entries);
         } else if (update_descriptors) {
             const VkDescriptorSet descriptor_set{descriptor_allocator.Commit()};
@@ -692,7 +693,7 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
             cmdbuf.BindDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline_layout, 0,
                                       descriptor_set, nullptr);
             GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                GPU::Logging::DiagnosticEventType::DescriptorSetBind, 0, pipeline_hash,
+                GPU::Logging::DiagnosticEventType::DescriptorSetBind, diagnostic_frame, pipeline_hash,
                 reinterpret_cast<u64>(descriptor_set), num_descriptor_entries);
         }
     });
