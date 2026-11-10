@@ -63,7 +63,8 @@ public:
     void AddSampledImage(VkImageView image_view, VkSampler sampler) {
         GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
             GPU::Logging::DiagnosticEventType::DescriptorImageWrite, 0,
-            reinterpret_cast<u64>(image_view), reinterpret_cast<u64>(sampler), 1,\n            static_cast<u64>(payload_cursor - payload_start));
+            reinterpret_cast<u64>(image_view), reinterpret_cast<u64>(sampler), 1,
+            static_cast<u64>(payload_cursor - payload_start));
         *(payload_cursor++) = VkDescriptorImageInfo{
             .sampler = sampler,
             .imageView = image_view,
@@ -74,7 +75,8 @@ public:
     void AddImage(VkImageView image_view) {
         GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
             GPU::Logging::DiagnosticEventType::DescriptorImageWrite, 0,
-            reinterpret_cast<u64>(image_view), 0, 0,\n            static_cast<u64>(payload_cursor - payload_start));
+            reinterpret_cast<u64>(image_view), 0, 0,
+            static_cast<u64>(payload_cursor - payload_start));
         *(payload_cursor++) = VkDescriptorImageInfo{
             .sampler = VK_NULL_HANDLE,
             .imageView = image_view,
@@ -85,7 +87,8 @@ public:
     void AddBuffer(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) {
         GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
             GPU::Logging::DiagnosticEventType::DescriptorBufferWrite, 0,
-            reinterpret_cast<u64>(buffer), offset, size,\n            static_cast<u64>(payload_cursor - payload_start));
+            reinterpret_cast<u64>(buffer), offset, size,
+            static_cast<u64>(payload_cursor - payload_start));
         *(payload_cursor++) = VkDescriptorBufferInfo{
             .buffer = buffer,
             .offset = offset,
@@ -101,7 +104,8 @@ public:
         }
         GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
             GPU::Logging::DiagnosticEventType::DescriptorAddressWrite, 0,
-            base_address == 0 ? 0 : base_address + offset, size, 1,\n            static_cast<u64>(payload_cursor - payload_start));
+            base_address == 0 ? 0 : base_address + offset, size, 1,
+            static_cast<u64>(payload_cursor - payload_start));
         *(payload_cursor++) = DescriptorAddress{
             .address = base_address == 0 ? 0 : base_address + offset,
             .range = base_address == 0 ? VK_WHOLE_SIZE : size,
@@ -112,7 +116,8 @@ public:
     void AddTexelBuffer(VkBufferView texel_buffer) {
         GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
             GPU::Logging::DiagnosticEventType::DescriptorTexelWrite, 0,
-            reinterpret_cast<u64>(texel_buffer), 0, 0,\n            static_cast<u64>(payload_cursor - payload_start));
+            reinterpret_cast<u64>(texel_buffer), 0, 0,
+            static_cast<u64>(payload_cursor - payload_start));
         *(payload_cursor++) = texel_buffer;
     }
 
@@ -125,7 +130,8 @@ public:
         GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
             GPU::Logging::DiagnosticEventType::DescriptorAddressWrite, 0,
             base_address == 0 ? 0 : base_address + offset, size,
-            static_cast<u64>(format),\n            static_cast<u64>(payload_cursor - payload_start));
+            static_cast<u64>(format),
+            static_cast<u64>(payload_cursor - payload_start));
         *(payload_cursor++) = DescriptorAddress{
             .address = base_address == 0 ? 0 : base_address + offset,
             .range = base_address == 0 ? VK_WHOLE_SIZE : size,
