@@ -12,6 +12,7 @@
 
 #include "video_core/buffer_cache/buffer_cache_base.h"
 #include "video_core/gpu_logging/native_diagnostic_recorder.h"
+#include "video_core/gpu_logging/native_diagnostic_recorder.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
@@ -117,6 +118,17 @@ Buffer::Buffer(BufferCacheRuntime& runtime, DAddr cpu_addr_, u64 size_bytes_,
     }
     if (device->IsBufferDeviceAddressSupported()) {
         device_address = device->GetLogical().GetBufferDeviceAddress(*buffer);
+    }
+    GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+        GPU::Logging::DiagnosticEventType::ResourceUpdate, 0,
+        reinterpret_cast<u64>(*buffer), CpuAddr(), SizeBytes(), device_address, 0x10);
+}
+
+Buffer::~Buffer() {
+    if (buffer) {
+        GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+            GPU::Logging::DiagnosticEventType::ResourceUpdate, 0,
+            reinterpret_cast<u64>(*buffer), CpuAddr(), SizeBytes(), device_address, 0x11);
     }
 }
 
