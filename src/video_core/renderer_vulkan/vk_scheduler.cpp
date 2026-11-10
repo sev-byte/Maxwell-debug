@@ -103,7 +103,8 @@ void Scheduler::BeginRenderPassImpl(const Framebuffer* framebuffer, VkRenderPass
     state.render_area = render_area;
 
     GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-        GPU::Logging::DiagnosticEventType::RenderPassBegin, 0, 0, 0,
+        GPU::Logging::DiagnosticEventType::RenderPassBegin, diagnostic_frame_id,
+        reinterpret_cast<u64>(framebuffer_handle), reinterpret_cast<u64>(renderpass),
         (static_cast<u64>(render_area.width) << 32) | render_area.height,
         (static_cast<u64>(framebuffer->NumImages()) << 32) | clear_value_count);
 
@@ -416,7 +417,8 @@ void Scheduler::EndRenderPass()
         query_cache->CounterClose(VideoCommon::QueryType::StreamingByteCount);
 
         GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-            GPU::Logging::DiagnosticEventType::RenderPassEnd);
+            GPU::Logging::DiagnosticEventType::RenderPassEnd, diagnostic_frame_id,
+            reinterpret_cast<u64>(state.framebuffer), reinterpret_cast<u64>(state.renderpass));
 
         // Log render pass end
         if (GPU::Logging::IsActive() &&
