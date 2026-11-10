@@ -434,9 +434,11 @@ void Scheduler::EndRenderPass()
         query_cache->CounterEnable(VideoCommon::QueryType::ZPassPixelCount64, false);
         query_cache->NotifySegment(false);
 
+        const u64 diagnostic_frame = diagnostic_frame_id;
         Record([num_images = num_renderpass_images,
                        images = renderpass_images,
                        ranges = renderpass_image_ranges,
+                       diagnostic_frame,
                        has_transform_feedback = device.IsExtTransformFeedbackSupported()](
                           vk::CommandBuffer cmdbuf) {
             std::array<VkImageMemoryBarrier, 9> barriers;
@@ -486,7 +488,7 @@ void Scheduler::EndRenderPass()
                     .dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT,
                 };
                 GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                    GPU::Logging::DiagnosticEventType::Synchronization, diagnostic_frame_id,
+                    GPU::Logging::DiagnosticEventType::Synchronization, diagnostic_frame,
                     VK_PIPELINE_STAGE_TRANSFORM_FEEDBACK_BIT_EXT,
                     VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
                     VK_ACCESS_TRANSFORM_FEEDBACK_WRITE_BIT_EXT,
