@@ -419,8 +419,12 @@ void PresentManager::CopyToSwapchain(Frame* frame) {
                 RecreateSwapchain(frame);
             }
 
-            // Draw to swapchain.
-            return CopyToSwapchainImpl(frame);
+            // Draw to swapchain and record completion against the render frame.
+            CopyToSwapchainImpl(frame);
+            GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+                GPU::Logging::DiagnosticEventType::FramePresentComplete,
+                frame->diagnostic_frame_id, frame->index, 0, 1);
+            return;
         } catch (const vk::Exception& except) {
             if (except.GetResult() != VK_ERROR_SURFACE_LOST_KHR) {
                 throw;
@@ -431,6 +435,9 @@ void PresentManager::CopyToSwapchain(Frame* frame) {
     }
 
     DiscardFrame(frame);
+    GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+        GPU::Logging::DiagnosticEventType::FramePresentComplete,
+        frame->diagnostic_frame_id, frame->index, 0, 0);
 }
 
 void PresentManager::CopyToSwapchainImpl(Frame* frame) {
