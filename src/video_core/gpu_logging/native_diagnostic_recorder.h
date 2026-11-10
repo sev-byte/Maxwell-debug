@@ -28,6 +28,9 @@ enum class DiagnosticEventType : u16 {
     DescriptorUpdate = 8,
     Synchronization = 9,
     Presentation = 10,
+    FrameAcquire = 11,
+    FramePresentQueued = 12,
+    FramePresentComplete = 13,
     DiagnosticError = 255,
 };
 
