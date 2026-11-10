@@ -340,14 +340,15 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
         split_attribute_handles = false;
     };
     PrepareDraw(is_indexed, [this, is_indexed, instance_count] {
+        const u64 diagnostic_frame = scheduler.DiagnosticFrameId();
         const auto& draw_state = maxwell3d->draw_manager.draw_state;
         const u32 num_instances{instance_count};
         const DrawParams draw_params{MakeDrawParams(draw_state, num_instances, is_indexed)};
 
-        const auto record_draw = [this](const DrawParams& params) {
-            scheduler.Record([params](vk::CommandBuffer cmdbuf) {
+        const auto record_draw = [this, diagnostic_frame](const DrawParams& params) {
+            scheduler.Record([params, diagnostic_frame](vk::CommandBuffer cmdbuf) {
                 GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                    GPU::Logging::DiagnosticEventType::GraphicsDraw, 0,
+                    GPU::Logging::DiagnosticEventType::GraphicsDraw, diagnostic_frame,
                     params.num_vertices, params.num_instances,
                     params.is_indexed ? params.first_index : params.base_vertex,
                     params.base_instance, params.is_indexed ? 1 : 0);
@@ -404,14 +405,15 @@ void RasterizerVulkan::DrawIndirect() {
     const auto& params = maxwell3d->draw_manager.indirect_state;
     buffer_cache.SetDrawIndirect(&params);
     PrepareDraw(params.is_indexed, [this, &params] {
+        const u64 diagnostic_frame = scheduler.DiagnosticFrameId();
         const auto indirect_buffer = buffer_cache.GetDrawIndirectBuffer();
         const auto& buffer = indirect_buffer.first;
         const auto& offset = indirect_buffer.second;
         if (params.is_byte_count) {
             scheduler.Record([buffer_obj = buffer->Handle(), offset,
-                              stride = params.stride](vk::CommandBuffer cmdbuf) {
+                              stride = params.stride, diagnostic_frame](vk::CommandBuffer cmdbuf) {
                 GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                    GPU::Logging::DiagnosticEventType::GraphicsDraw, 0,
+                    GPU::Logging::DiagnosticEventType::GraphicsDraw, diagnostic_frame,
                     reinterpret_cast<u64>(buffer_obj), offset, 1, stride, 4);
                 cmdbuf.DrawIndirectByteCountEXT(1, 0, buffer_obj, offset, 0,
                                                 static_cast<u32>(stride));
@@ -424,9 +426,9 @@ void RasterizerVulkan::DrawIndirect() {
             const auto& offset_base = count.second;
             scheduler.Record([draw_buffer_obj = draw_buffer->Handle(),
                               buffer_obj = buffer->Handle(), offset_base, offset,
-                              params](vk::CommandBuffer cmdbuf) {
+                              params, diagnostic_frame](vk::CommandBuffer cmdbuf) {
                 GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                    GPU::Logging::DiagnosticEventType::GraphicsDraw, 0,
+                    GPU::Logging::DiagnosticEventType::GraphicsDraw, diagnostic_frame,
                     reinterpret_cast<u64>(buffer_obj), reinterpret_cast<u64>(draw_buffer_obj),
                     offset, (static_cast<u64>(params.max_draw_counts) << 32) | params.stride,
                     static_cast<u16>((params.is_indexed ? 1 : 0) | 2 | 8));
@@ -442,9 +444,9 @@ void RasterizerVulkan::DrawIndirect() {
             });
             return;
         }
-        scheduler.Record([buffer_obj = buffer->Handle(), offset, params](vk::CommandBuffer cmdbuf) {
+        scheduler.Record([buffer_obj = buffer->Handle(), offset, params, diagnostic_frame](vk::CommandBuffer cmdbuf) {
             GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                GPU::Logging::DiagnosticEventType::GraphicsDraw, 0,
+                GPU::Logging::DiagnosticEventType::GraphicsDraw, diagnostic_frame,
                 reinterpret_cast<u64>(buffer_obj), offset,
                 params.max_draw_counts, params.stride,
                 static_cast<u16>((params.is_indexed ? 1 : 0) | 2));
@@ -704,6 +706,7 @@ void RasterizerVulkan::Clear(u32 layer_count) {
 }
 
 void RasterizerVulkan::DispatchCompute() {
+    const u64 diagnostic_frame = scheduler.DiagnosticFrameId();
     FlushWork();
     gpu_memory->FlushCaching();
 
@@ -727,12 +730,12 @@ void RasterizerVulkan::DispatchCompute() {
             buffer_cache.ObtainBuffer(*indirect_address, 12, sync_info, post_op);
         scheduler.RequestOutsideRenderPassOperationContext();
         scheduler.Record([pipeline, indirect_buffer = buffer->Handle(),
-                          indirect_offset = offset](vk::CommandBuffer cmdbuf) {
+                          indirect_offset = offset, diagnostic_frame](vk::CommandBuffer cmdbuf) {
             if (!pipeline->IsBound()) {
                 return;
             }
             GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                GPU::Logging::DiagnosticEventType::ComputeDispatch, 0,
+                GPU::Logging::DiagnosticEventType::ComputeDispatch, diagnostic_frame,
                 reinterpret_cast<u64>(indirect_buffer), indirect_offset, 1, 0, 1);
             cmdbuf.DispatchIndirect(indirect_buffer, indirect_offset);
         });
@@ -750,19 +753,19 @@ void RasterizerVulkan::DispatchCompute() {
         .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
         .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
     };
-    scheduler.Record([](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([diagnostic_frame](vk::CommandBuffer cmdbuf) {
         GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-            GPU::Logging::DiagnosticEventType::Synchronization, 0, 0, 0,
+            GPU::Logging::DiagnosticEventType::Synchronization, diagnostic_frame, 0, 0,
             VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT, 3);
         cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER,
                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, READ_BARRIER);
     });
-    scheduler.Record([pipeline, dim](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([pipeline, dim, diagnostic_frame](vk::CommandBuffer cmdbuf) {
         if (!pipeline->IsBound()) {
             return;
         }
         GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-            GPU::Logging::DiagnosticEventType::ComputeDispatch, 0,
+            GPU::Logging::DiagnosticEventType::ComputeDispatch, diagnostic_frame,
             dim[0], dim[1], dim[2], 0);
         cmdbuf.Dispatch(dim[0], dim[1], dim[2]);
     });
