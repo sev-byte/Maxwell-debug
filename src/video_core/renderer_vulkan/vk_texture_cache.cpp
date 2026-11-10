@@ -19,6 +19,7 @@
 #include "common/settings.h"
 
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
+#include "video_core/gpu_logging/native_diagnostic_recorder.h"
 #include "video_core/gpu_logging/gpu_logging.h"
 
 #include "video_core/engines/fermi_2d.h"
@@ -1903,6 +1904,10 @@ Image::Image(TextureCacheRuntime& runtime_, const ImageInfo& info_, GPUVAddr gpu
         original_image.SetObjectNameEXT(VideoCommon::Name(*this).c_str());
     }
     current_image = &Image::original_image;
+    GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+        GPU::Logging::DiagnosticEventType::ResourceUpdate, 0,
+        reinterpret_cast<u64>(*original_image), gpu_addr, info.size.width,
+        (static_cast<u64>(info.size.height) << 32) | info.size.depth, 0x20);
     storage_image_views.resize(info.resources.levels);
     if (WillUseAcceleratedAstcDecode(runtime->device, info)) {
         const auto& device = runtime->device.GetLogical();
@@ -1917,6 +1922,12 @@ Image::Image(TextureCacheRuntime& runtime_, const ImageInfo& info_, GPUVAddr gpu
 Image::Image(const VideoCommon::NullImageParams& params) : VideoCommon::ImageBase{params} {}
 
 Image::~Image() {
+    if (original_image) {
+        GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+            GPU::Logging::DiagnosticEventType::ResourceUpdate, 0,
+            reinterpret_cast<u64>(*original_image), gpu_addr, info.size.width,
+            (static_cast<u64>(info.size.height) << 32) | info.size.depth, 0x21);
+    }
     if (ENABLE_MSAA_RESOLVE_CONSUME && runtime != nullptr) {
         if (original_image) {
             runtime->EraseResolveShadow(*original_image);
