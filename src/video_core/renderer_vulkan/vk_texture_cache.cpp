@@ -2066,6 +2066,10 @@ void Image::UploadMemory(VkBuffer buffer, VkDeviceSize offset,
     auto vk_copies = TransformBufferImageCopies(copies, offset, aspect_mask);
     const VkBuffer src_buffer = buffer;
     const VkImage vk_image = *original_image;
+    GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+        GPU::Logging::DiagnosticEventType::ResourceUpdate, 0,
+        reinterpret_cast<u64>(src_buffer), reinterpret_cast<u64>(vk_image),
+        vk_copies.size(), offset, 0x22);
     const VkImageAspectFlags vk_aspect_mask = aspect_mask;
     const bool was_initialized = std::exchange(initialized, true);
 
