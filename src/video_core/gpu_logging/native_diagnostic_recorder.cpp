@@ -103,124 +103,145 @@ bool NativeDiagnosticRecorder::Initialize() {
     dropped_events = 0;
     stopping = false;
     failed = false;
-    initialized = true;
-
-    DiagnosticEvent start{
-        .type = static_cast<u16>(DiagnosticEventType::SessionStart),
-        .sequence = ++sequence,
-        .wall_time_ns = WallNowNs(),
-        .monotonic_time_ns = MonotonicNowNs(),
-    };
-    queue.push_back(start);
 
     try {
+        queue.push_back(DiagnosticEvent{
+            .type = static_cast<u16>(DiagnosticEventType::SessionStart),
+            .sequence = 1,
+            .wall_time_ns = WallNowNs(),
+            .monotonic_time_ns = MonotonicNowNs(),
+        });
         writer = std::thread(&NativeDiagnosticRecorder::WriterLoop, this);
     } catch (...) {
         initialized = false;
+        stopping = true;
         file->Close();
         file.reset();
-        failed = true;
         queue.clear();
+        failed = true;
         return false;
     }
+
+    sequence = 1;
+    initialized = true;
     return true;
 }
 
 void NativeDiagnosticRecorder::Record(DiagnosticEventType type, u64 frame_id,
                                       u64 object_a, u64 object_b, u64 value_a,
                                       u64 value_b, u16 flags) noexcept {
-    {
-        std::scoped_lock lock{mutex};
-        if (!initialized || stopping || failed) {
-            ++dropped_events;
-            return;
-        }
-        if (queue.size() >= MaxQueuedEvents) {
-            ++dropped_events;
-            return;
-        }
+    try {
+        {
+            std::scoped_lock lock{mutex};
+            if (!initialized || stopping || failed) {
+                ++dropped_events;
+                return;
+            }
+            if (queue.size() >= MaxQueuedEvents) {
+                ++dropped_events;
+                return;
+            }
 
-        queue.push_back(DiagnosticEvent{
-            .type = static_cast<u16>(type),
-            .flags = flags,
-            .thread_id = static_cast<u32>(
-                std::hash<std::thread::id>{}(std::this_thread::get_id())),
-            .sequence = ++sequence,
-            .wall_time_ns = WallNowNs(),
-            .monotonic_time_ns = MonotonicNowNs(),
-            .frame_id = frame_id,
-            .object_a = object_a,
-            .object_b = object_b,
-            .value_a = value_a,
-            .value_b = value_b,
-        });
+            const u64 next_sequence = sequence + 1;
+            queue.push_back(DiagnosticEvent{
+                .type = static_cast<u16>(type),
+                .flags = flags,
+                .thread_id = static_cast<u32>(
+                    std::hash<std::thread::id>{}(std::this_thread::get_id())),
+                .sequence = next_sequence,
+                .wall_time_ns = WallNowNs(),
+                .monotonic_time_ns = MonotonicNowNs(),
+                .frame_id = frame_id,
+                .object_a = object_a,
+                .object_b = object_b,
+                .value_a = value_a,
+                .value_b = value_b,
+            });
+            sequence = next_sequence;
+        }
+        wake_writer.notify_one();
+    } catch (...) {
+        // Instrumentation must never terminate the emulation if queue allocation fails.
+        std::scoped_lock lock{mutex};
+        ++dropped_events;
     }
-    wake_writer.notify_one();
 }
 
 bool NativeDiagnosticRecorder::WriteChunk(const std::vector<u8>& events) noexcept {
-    if (!file || events.empty()) {
+    try {
+        if (!file || !file->IsOpen() || events.empty()) {
+            return events.empty();
+        }
+
+        const auto compressed =
+            Common::Compression::CompressDataZSTD(events.data(), events.size(), 3);
+        if (compressed.empty()) {
+            return false;
+        }
+
+        const ChunkHeader header{
+            .magic = 0x4B4E4843,
+            .uncompressed_size = static_cast<u32>(events.size()),
+            .compressed_size = static_cast<u32>(compressed.size()),
+            .checksum = HashBytes(events),
+        };
+        if (file->Write(header) != 1 || file->Write(compressed) != compressed.size()) {
+            return false;
+        }
+        file->Flush();
         return true;
-    }
-
-    const auto compressed =
-        Common::Compression::CompressDataZSTD(events.data(), events.size(), 3);
-    if (compressed.empty()) {
+    } catch (...) {
         return false;
     }
-
-    const ChunkHeader header{
-        .magic = 0x4B4E4843,
-        .uncompressed_size = static_cast<u32>(events.size()),
-        .compressed_size = static_cast<u32>(compressed.size()),
-        .checksum = HashBytes(events),
-    };
-    if (file->Write(header) != 1 || file->Write(compressed) != compressed.size()) {
-        return false;
-    }
-    file->Flush();
-    return true;
 }
 
 void NativeDiagnosticRecorder::WriterLoop() noexcept {
-    std::vector<u8> chunk;
-    chunk.reserve(ChunkLimit);
+    try {
+        std::vector<u8> chunk;
+        chunk.reserve(ChunkLimit);
 
-    for (;;) {
-        std::deque<DiagnosticEvent> batch;
-        bool should_stop = false;
-        {
-            std::unique_lock lock{mutex};
-            wake_writer.wait_for(lock, WriterWakeInterval,
-                                 [this] { return !queue.empty() || stopping; });
-            while (!queue.empty() &&
-                   batch.size() < ChunkLimit / sizeof(DiagnosticEvent)) {
-                batch.push_back(queue.front());
-                queue.pop_front();
+        for (;;) {
+            std::deque<DiagnosticEvent> batch;
+            bool should_stop = false;
+            {
+                std::unique_lock lock{mutex};
+                wake_writer.wait_for(lock, WriterWakeInterval,
+                                     [this] { return !queue.empty() || stopping; });
+                while (!queue.empty() &&
+                       batch.size() < ChunkLimit / sizeof(DiagnosticEvent)) {
+                    batch.push_back(queue.front());
+                    queue.pop_front();
+                }
+                should_stop = stopping && queue.empty();
             }
-            should_stop = stopping && queue.empty();
-        }
 
-        for (const auto& event : batch) {
-            const auto* begin = reinterpret_cast<const u8*>(&event);
-            chunk.insert(chunk.end(), begin, begin + sizeof(event));
-        }
+            for (const auto& event : batch) {
+                const auto* begin = reinterpret_cast<const u8*>(&event);
+                chunk.insert(chunk.end(), begin, begin + sizeof(event));
+            }
 
-        if (chunk.size() >= ChunkLimit || (should_stop && !chunk.empty())) {
-            if (!WriteChunk(chunk)) {
-                std::scoped_lock lock{mutex};
-                failed = true;
-                dropped_events += queue.size();
-                queue.clear();
-                chunk.clear();
-            } else {
-                chunk.clear();
+            if (chunk.size() >= ChunkLimit || (should_stop && !chunk.empty())) {
+                if (!WriteChunk(chunk)) {
+                    std::scoped_lock lock{mutex};
+                    failed = true;
+                    dropped_events += queue.size();
+                    queue.clear();
+                    chunk.clear();
+                } else {
+                    chunk.clear();
+                }
+            }
+
+            if (should_stop) {
+                break;
             }
         }
-
-        if (should_stop) {
-            break;
-        }
+    } catch (...) {
+        // A failed allocation or unexpected writer exception is contained on this thread.
+        std::scoped_lock lock{mutex};
+        failed = true;
+        dropped_events += queue.size();
+        queue.clear();
     }
 
     if (file) {
@@ -237,15 +258,20 @@ void NativeDiagnosticRecorder::Shutdown() noexcept {
             return;
         }
         if (initialized && !failed) {
-            if (queue.size() < MaxQueuedEvents) {
-                queue.push_back(DiagnosticEvent{
-                    .type = static_cast<u16>(DiagnosticEventType::SessionEnd),
-                    .sequence = ++sequence,
-                    .wall_time_ns = WallNowNs(),
-                    .monotonic_time_ns = MonotonicNowNs(),
-                    .value_a = dropped_events,
-                });
-            } else {
+            try {
+                if (queue.size() < MaxQueuedEvents) {
+                    queue.push_back(DiagnosticEvent{
+                        .type = static_cast<u16>(DiagnosticEventType::SessionEnd),
+                        .sequence = sequence + 1,
+                        .wall_time_ns = WallNowNs(),
+                        .monotonic_time_ns = MonotonicNowNs(),
+                        .value_a = dropped_events,
+                    });
+                    ++sequence;
+                } else {
+                    ++dropped_events;
+                }
+            } catch (...) {
                 ++dropped_events;
             }
         }
