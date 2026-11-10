@@ -30,7 +30,7 @@ enum class DiagnosticEventType : u16 {
     Presentation = 10,
     FrameAcquire = 11,
     FramePresentQueued = 12,
-    FramePresentComplete = 13,
+    FramePresentSubmitted = 13,
     DiagnosticError = 255,
 };
 
