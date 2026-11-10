@@ -189,6 +189,8 @@ android {
             dimension = "version"
             isDefault = true
             minSdk = 33
+            // Keep the diagnostic build installable alongside the regular Eden app.
+            applicationIdSuffix = ".diagnostic"
 
             manifestPlaceholders += mapOf("appNameBase" to "Eden")
             resValue("string", "app_name_suffixed", "Eden")
