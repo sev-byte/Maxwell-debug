@@ -58,6 +58,7 @@ public:
 
     /// Sets the diagnostic frame identifier used by subsequent GPU events.
     void SetDiagnosticFrameId(u64 frame_id) noexcept { diagnostic_frame_id = frame_id; }
+    [[nodiscard]] u64 DiagnosticFrameId() const noexcept { return diagnostic_frame_id; }
 
     /// Requests to begin a renderpass.
     void RequestRenderpass(const Framebuffer* framebuffer);
