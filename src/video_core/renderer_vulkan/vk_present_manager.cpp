@@ -11,6 +11,7 @@
 #include "video_core/renderer_vulkan/present/lsfg_common.h"
 #endif
 #include "video_core/renderer_vulkan/vk_present_manager.h"
+#include "video_core/gpu_logging/native_diagnostic_recorder.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
 #include "video_core/vulkan_common/vulkan_device.h"
@@ -183,10 +184,19 @@ Frame* PresentManager::GetRenderFrame() {
     frame->present_done.Wait();
     frame->present_done.Reset();
 
+    static std::atomic<u64> next_diagnostic_frame{0};
+    frame->diagnostic_frame_id = next_diagnostic_frame.fetch_add(1, std::memory_order_relaxed) + 1;
+    scheduler.SetDiagnosticFrameId(frame->diagnostic_frame_id);
+    GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+        GPU::Logging::DiagnosticEventType::FrameAcquire, frame->diagnostic_frame_id,
+        frame->index, 0, (static_cast<u64>(frame->width) << 32) | frame->height);
     return frame;
 }
 
 void PresentManager::Present(Frame* frame) {
+    GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+        GPU::Logging::DiagnosticEventType::FramePresentQueued, frame->diagnostic_frame_id,
+        frame->index, 0, (static_cast<u64>(frame->width) << 32) | frame->height);
     if (use_present_thread) {
         scheduler.Record([this, frame](vk::CommandBuffer) {
             std::unique_lock lock{queue_mutex};
