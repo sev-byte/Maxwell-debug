@@ -3187,7 +3187,14 @@ void TextureCacheRuntime::TransitionImageLayout(Image& image) {
             },
         };
         scheduler.RequestOutsideRenderPassOperationContext();
-        scheduler.Record([barrier](vk::CommandBuffer cmdbuf) {
+        const u64 diagnostic_frame = scheduler.DiagnosticFrameId();
+        scheduler.Record([barrier, diagnostic_frame](vk::CommandBuffer cmdbuf) {
+            GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+                GPU::Logging::DiagnosticEventType::Synchronization, diagnostic_frame,
+                reinterpret_cast<u64>(barrier.image),
+                (static_cast<u64>(barrier.oldLayout) << 32) |
+                    static_cast<u32>(barrier.newLayout),
+                barrier.srcAccessMask, barrier.dstAccessMask, 6);
             cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE,
                                    vk::PIPELINE_STAGE_GRAPHICS_COMPUTE, 0, barrier);
         });
