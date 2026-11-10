@@ -31,6 +31,10 @@ enum class DiagnosticEventType : u16 {
     FrameAcquire = 11,
     FramePresentQueued = 12,
     FramePresentSubmitted = 13,
+    DescriptorBufferWrite = 14,
+    DescriptorImageWrite = 15,
+    DescriptorTexelWrite = 16,
+    DescriptorAddressWrite = 17,
     DiagnosticError = 255,
 };
 
