@@ -57,8 +57,6 @@ These are recorder conventions, not Vulkan API guarantees. Treat raw values as u
 | 0x21 | Image destroyed | VkImage | guest GPU address | width | height/depth packed as above |
 | 0x22 | Buffer-to-image upload | source VkBuffer | destination VkImage | copy region count | source offset |
 
-| 0x30 | Image layout transition | VkImage | old layout in high 32 bits, new layout in low 32 bits | source access mask | destination access mask |
-
 Other ResourceUpdate flag values are defined at their individual call sites.
 
 ### Synchronization flags
@@ -70,6 +68,7 @@ For the following events, `object_a` is the source pipeline-stage mask, `object_
 | 3 | Compute pre-dispatch memory dependency |
 | 4 | Upload transfer-to-general-work dependency |
 | 5 | Transform-feedback output dependency |
+| 6 | Image layout transition; object_a is VkImage, object_b packs old layout (high 32 bits) and new layout (low 32 bits) |
 
 Older buffer-cache copy/fill records use their original field layout; consult the call site before interpreting those records as stage masks.
 
