@@ -19,6 +19,7 @@
 #include "common/settings.h"
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/gpu_logging/gpu_logging.h"
+#include "video_core/gpu_logging/native_diagnostic_recorder.h"
 #include "video_core/control/channel_state.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/engines/kepler_compute.h"
@@ -345,6 +346,11 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
 
         const auto record_draw = [this](const DrawParams& params) {
             scheduler.Record([params](vk::CommandBuffer cmdbuf) {
+                GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+                    GPU::Logging::DiagnosticEventType::GraphicsDraw, 0,
+                    params.num_vertices, params.num_instances,
+                    params.is_indexed ? params.first_index : params.base_vertex,
+                    params.base_instance, params.is_indexed ? 1 : 0);
                 if (params.is_indexed) {
                     cmdbuf.DrawIndexed(params.num_vertices, params.num_instances,
                                        params.first_index, params.base_vertex,
@@ -429,6 +435,11 @@ void RasterizerVulkan::DrawIndirect() {
             return;
         }
         scheduler.Record([buffer_obj = buffer->Handle(), offset, params](vk::CommandBuffer cmdbuf) {
+            GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+                GPU::Logging::DiagnosticEventType::GraphicsDraw, 0,
+                reinterpret_cast<u64>(buffer_obj), offset,
+                params.max_draw_counts, params.stride,
+                static_cast<u16>((params.is_indexed ? 1 : 0) | 2));
             if (params.is_indexed) {
                 cmdbuf.DrawIndexedIndirect(buffer_obj, offset,
                                            static_cast<u32>(params.max_draw_counts),
@@ -712,6 +723,9 @@ void RasterizerVulkan::DispatchCompute() {
             if (!pipeline->IsBound()) {
                 return;
             }
+            GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+                GPU::Logging::DiagnosticEventType::ComputeDispatch, 0,
+                reinterpret_cast<u64>(indirect_buffer), indirect_offset, 1, 0, 1);
             cmdbuf.DispatchIndirect(indirect_buffer, indirect_offset);
         });
         return;
@@ -734,6 +748,9 @@ void RasterizerVulkan::DispatchCompute() {
         if (!pipeline->IsBound()) {
             return;
         }
+        GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+            GPU::Logging::DiagnosticEventType::ComputeDispatch, 0,
+            dim[0], dim[1], dim[2], 0);
         cmdbuf.Dispatch(dim[0], dim[1], dim[2]);
     });
 
