@@ -27,6 +27,7 @@ class Scheduler;
 class Swapchain;
 
 struct Frame {
+    u64 diagnostic_frame_id{};
     u32 width;
     u32 height;
     u32 index;
