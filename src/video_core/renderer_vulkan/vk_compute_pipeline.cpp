@@ -273,6 +273,7 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
         GPU::Logging::GPULogger::GetInstance().LogPipelineBind(true, "compute pipeline");
     }
 
+    const u64 diagnostic_frame = scheduler.DiagnosticFrameId();
     const DescriptorUpdateEntry* const descriptor_data{guest_descriptor_queue.UpdateData()};
     VkDeviceSize descriptor_buffer_offset{};
     u32 descriptor_buffer_chunk{};
@@ -294,7 +295,8 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     const bool is_rescaling = !info.texture_descriptors.empty() || !info.image_descriptors.empty();
     scheduler.Record([this, descriptor_data, is_rescaling, descriptor_buffer_offset,
                       descriptor_buffer_chunk, bind_descriptor_buffer,
-                      rescaling_data = rescaling.Data(), compute_hash = shader_hash](vk::CommandBuffer cmdbuf) {
+                      rescaling_data = rescaling.Data(), compute_hash = shader_hash,
+                      diagnostic_frame](vk::CommandBuffer cmdbuf) {
         if (bind_descriptor_buffer) {
             const VkDescriptorBufferBindingInfoEXT binding_info{
                 descriptor_buffer_ring.BindingInfo(descriptor_buffer_chunk)};
@@ -305,7 +307,7 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
         }
         cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline);
         GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-            GPU::Logging::DiagnosticEventType::ComputePipelineBind, 0, compute_hash,
+            GPU::Logging::DiagnosticEventType::ComputePipelineBind, diagnostic_frame, compute_hash,
             reinterpret_cast<u64>(*pipeline));
         if (!descriptor_set_layout) {
             return;
@@ -320,13 +322,13 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
             cmdbuf.SetDescriptorBufferOffsetsEXT(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline_layout,
                                                  0, buffer_index, descriptor_buffer_offset);
             GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                GPU::Logging::DiagnosticEventType::DescriptorBufferBind, 0, compute_hash,
+                GPU::Logging::DiagnosticEventType::DescriptorBufferBind, diagnostic_frame, compute_hash,
                 descriptor_buffer_chunk, descriptor_buffer_offset);
         } else if (uses_push_descriptor) {
             cmdbuf.PushDescriptorSetWithTemplateKHR(*descriptor_update_template, *pipeline_layout,
                                                     0, descriptor_data);
             GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                GPU::Logging::DiagnosticEventType::PushDescriptorBind, 0, compute_hash,
+                GPU::Logging::DiagnosticEventType::PushDescriptorBind, diagnostic_frame, compute_hash,
                 reinterpret_cast<u64>(*pipeline_layout), num_descriptor_entries);
         } else {
             const VkDescriptorSet descriptor_set{descriptor_allocator.Commit()};
@@ -335,7 +337,7 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
             cmdbuf.BindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline_layout, 0,
                                       descriptor_set, nullptr);
             GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
-                GPU::Logging::DiagnosticEventType::DescriptorSetBind, 0, compute_hash,
+                GPU::Logging::DiagnosticEventType::DescriptorSetBind, diagnostic_frame, compute_hash,
                 reinterpret_cast<u64>(descriptor_set), num_descriptor_entries);
         }
     });
