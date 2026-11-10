@@ -37,6 +37,8 @@ public:
     explicit Buffer(BufferCacheRuntime& runtime, VAddr cpu_addr_, u64 size_bytes_,
                     bool sparse_compatible_);
     ~Buffer();
+    Buffer(Buffer&&) = default;
+    Buffer& operator=(Buffer&&) = default;
 
     [[nodiscard]] VkBufferView View(u32 offset, u32 size, VideoCore::Surface::PixelFormat format);
 
