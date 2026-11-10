@@ -56,6 +56,9 @@ public:
     /// Sends currently recorded work to the worker thread.
     void DispatchWork();
 
+    /// Sets the diagnostic frame identifier used by subsequent GPU events.
+    void SetDiagnosticFrameId(u64 frame_id) noexcept { diagnostic_frame_id = frame_id; }
+
     /// Requests to begin a renderpass.
     void RequestRenderpass(const Framebuffer* framebuffer);
 
@@ -312,6 +315,7 @@ private:
     std::function<void()> on_submit;
 
     State state;
+    u64 diagnostic_frame_id{};
 
     u32 num_renderpass_images = 0;
     std::array<VkImage, 9> renderpass_images{};
