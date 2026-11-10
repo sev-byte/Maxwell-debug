@@ -303,7 +303,9 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
         if (!pipeline) {
             return;
         }
-        cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline);\n        GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(\n            GPU::Logging::DiagnosticEventType::ComputePipelineBind, 0, compute_hash,\n            reinterpret_cast<u64>(*pipeline));
+        cmdbuf.BindPipeline(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline);
+        GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+            GPU::Logging::DiagnosticEventType::ComputePipelineBind, 0, compute_hash,\n            reinterpret_cast<u64>(*pipeline));
         if (!descriptor_set_layout) {
             return;
         }
