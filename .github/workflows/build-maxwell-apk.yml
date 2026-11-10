@@ -1,0 +1,83 @@
+name: Build Skyrim Light Buffer Capture APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - skyrim-light-buffer-capture
+      - skyrim-timestamped-gpu-events
+      - skyrim-full-pipeline-capture
+      - skyrim-shader-isolation
+      - skyrim-diag-cache-barriers
+      - skyrim-diag-shader-inputs
+      - skyrim-diag-depth-stencil
+      - skyrim-diag-sync-renderpass
+      - skyrim-diag-native-recorder
+    paths:
+      - 'CMakeLists.txt'
+      - 'externals/**'
+      - 'src/**'
+      - '.github/workflows/build-maxwell-apk.yml'
+      - '.ci/android/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Configure Android SDK
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
+          echo "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Install Android build packages
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.31.5"
+
+      - name: Install host shader compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslang-tools
+          glslangValidator --version
+
+      - name: Build arm64 APK
+        working-directory: src/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleMainlineRelease \
+            --no-daemon \
+            --max-workers=2 \
+            -Dorg.gradle.jvmargs="-Xmx5g -XX:MaxMetaspaceSize=1g"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: eden-skyrim-light-buffer-capture-arm64
+          path: src/android/app/build/outputs/apk/mainline/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+# Rebuild latest Skyrim diagnostic changes.
