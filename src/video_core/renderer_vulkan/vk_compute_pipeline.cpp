@@ -319,15 +319,24 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
             const u32 buffer_index{};
             cmdbuf.SetDescriptorBufferOffsetsEXT(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline_layout,
                                                  0, buffer_index, descriptor_buffer_offset);
+            GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+                GPU::Logging::DiagnosticEventType::DescriptorBufferBind, 0, compute_hash,
+                descriptor_buffer_chunk, descriptor_buffer_offset);
         } else if (uses_push_descriptor) {
             cmdbuf.PushDescriptorSetWithTemplateKHR(*descriptor_update_template, *pipeline_layout,
                                                     0, descriptor_data);
+            GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+                GPU::Logging::DiagnosticEventType::PushDescriptorBind, 0, compute_hash,
+                reinterpret_cast<u64>(*pipeline_layout), num_descriptor_entries);
         } else {
             const VkDescriptorSet descriptor_set{descriptor_allocator.Commit()};
             const vk::Device& dev{device.GetLogical()};
             dev.UpdateDescriptorSet(descriptor_set, *descriptor_update_template, descriptor_data);
             cmdbuf.BindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline_layout, 0,
                                       descriptor_set, nullptr);
+            GPU::Logging::NativeDiagnosticRecorder::GetInstance().Record(
+                GPU::Logging::DiagnosticEventType::DescriptorSetBind, 0, compute_hash,
+                reinterpret_cast<u64>(descriptor_set), num_descriptor_entries);
         }
     });
     return true;
