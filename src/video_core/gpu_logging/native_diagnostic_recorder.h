@@ -34,7 +34,7 @@ enum class DiagnosticEventType : u16 {
     DescriptorBufferWrite = 14,
     DescriptorImageWrite = 15,
     DescriptorTexelWrite = 16,
-    DescriptorAddressWrite = 17,
+    DescriptorAddressWrite = 17,\n    GraphicsPipelineBind = 18,\n    ComputePipelineBind = 19,\n    DescriptorSetBind = 20,\n    DescriptorBufferBind = 21,\n    PushDescriptorBind = 22,
     DiagnosticError = 255,
 };
 
