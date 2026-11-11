@@ -382,14 +382,14 @@ inline void PushImageDescriptors(TextureCache& texture_cache,
             u32 cubemap_slot = 16;
             bool newly_seen_cubemap = false;
             if (is_cubemap) {
-                // Slots are assigned to backing GPU image addresses, not descriptor
-                // positions. Multiple views of one image therefore share a switch.
+                // ImageId identifies the backing texture-cache image. Different
+                // ImageViews of that image therefore share one diagnostic switch.
                 static std::mutex cubemap_mutex;
-                static std::map<GPUVAddr, u32> cubemap_slots;
+                static std::map<VideoCommon::ImageId, u32> cubemap_slots;
                 {
                     std::scoped_lock lock{cubemap_mutex};
                     const auto [it, inserted] = cubemap_slots.try_emplace(
-                        image_view.gpu_addr, static_cast<u32>(cubemap_slots.size()));
+                        image_view.image_id, static_cast<u32>(cubemap_slots.size()));
                     cubemap_slot = it->second;
                     newly_seen_cubemap = inserted;
                 }
