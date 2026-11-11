@@ -9,6 +9,10 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <map>
+#include <mutex>
+
+#include "common/settings.h"
 
 #include <boost/container/small_vector.hpp>
 
@@ -372,24 +376,55 @@ inline void PushImageDescriptors(TextureCache& texture_cache,
             // Identify cubemaps by the backing GPU image address, not by descriptor
             // binding/array position. The same image can be exposed through multiple
             // ImageViews and reused by many draw calls.
-            if ((desc.type == Shader::TextureType::ColorCube ||
-                 desc.type == Shader::TextureType::ColorArrayCube) &&
-                GPU::Logging::IsActive()) {
-                const auto& size = image_view.size;
-                const std::string resource_info =
-                    "gpu_addr=" + std::to_string(image_view.gpu_addr) +
-                    " image_id=" + std::to_string(image_view.image_id.index) +
-                    " descriptor=" + std::to_string(texture_descriptor_index) +
-                    " element=" + std::to_string(index) +
-                    " type=" + std::to_string(static_cast<u32>(desc.type)) +
-                    " extent=" + std::to_string(size.width) + "x" +
-                    std::to_string(size.height) + "x" + std::to_string(size.depth) +
-                    " format=" + std::to_string(static_cast<u32>(image_view.format));
-                GPU::Logging::GPULogger::GetInstance().LogImageOperation(
-                    "CubemapResource", resource_info);
+            const bool is_cubemap =
+                desc.type == Shader::TextureType::ColorCube ||
+                desc.type == Shader::TextureType::ColorArrayCube;
+            u32 cubemap_slot = 16;
+            if (is_cubemap) {
+                // Slots are assigned to backing GPU image addresses, not descriptor
+                // positions. Multiple views of one image therefore share a switch.
+                static std::mutex cubemap_mutex;
+                static std::map<GPUVAddr, u32> cubemap_slots;
+                {
+                    std::scoped_lock lock{cubemap_mutex};
+                    const auto [it, inserted] = cubemap_slots.try_emplace(
+                        image_view.gpu_addr, static_cast<u32>(cubemap_slots.size()));
+                    cubemap_slot = it->second;
+                }
+
+                if (GPU::Logging::IsActive()) {
+                    const auto& size = image_view.size;
+                    const std::string resource_info =
+                        "slot=" + std::to_string(cubemap_slot) +
+                        " gpu_addr=" + std::to_string(image_view.gpu_addr) +
+                        " image_id=" + std::to_string(image_view.image_id.index) +
+                        " descriptor=" + std::to_string(texture_descriptor_index) +
+                        " element=" + std::to_string(index) +
+                        " type=" + std::to_string(static_cast<u32>(desc.type)) +
+                        " extent=" + std::to_string(size.width) + "x" +
+                        std::to_string(size.height) + "x" + std::to_string(size.depth) +
+                        " format=" + std::to_string(static_cast<u32>(image_view.format));
+                    GPU::Logging::GPULogger::GetInstance().LogImageOperation(
+                        "CubemapResource", resource_info);
+                }
             }
 
             VkImageView vk_image_view{image_view.Handle(desc.type)};
+            if (is_cubemap && cubemap_slot < 16 && Settings::GetDebugKnobAt(
+                    static_cast<u8>(cubemap_slot))) {
+                const VkImageView null_image_view{
+                    texture_cache.GetImageView(VideoCommon::NULL_IMAGE_VIEW_ID)
+                        .Handle(desc.type)};
+                if (null_image_view != VK_NULL_HANDLE) {
+                    vk_image_view = null_image_view;
+                    if (GPU::Logging::IsActive()) {
+                        GPU::Logging::GPULogger::GetInstance().LogImageOperation(
+                            "CubemapSuppressed",
+                            "slot=" + std::to_string(cubemap_slot) +
+                            " gpu_addr=" + std::to_string(image_view.gpu_addr));
+                    }
+                }
+            }
             if (vk_image_view == VK_NULL_HANDLE) {
                 const VkImageView null_image_view{texture_cache.GetImageView(VideoCommon::NULL_IMAGE_VIEW_ID).Handle(desc.type)};
                 if (null_image_view != VK_NULL_HANDLE) vk_image_view = null_image_view;
