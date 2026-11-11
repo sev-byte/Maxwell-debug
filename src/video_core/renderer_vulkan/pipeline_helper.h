@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <string>
 
 #include <boost/container/small_vector.hpp>
 
@@ -15,6 +16,7 @@
 #include "shader_recompiler/backend/spirv/emit_spirv.h"
 #include "shader_recompiler/shader_info.h"
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
+#include "video_core/gpu_logging/gpu_logging.h"
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
 #include "video_core/surface.h"
 #include "video_core/texture_cache/types.h"
@@ -359,12 +361,34 @@ inline void PushImageDescriptors(TextureCache& texture_cache,
     const u32 num_image_buffers = Shader::NumDescriptors(info.image_buffer_descriptors);
     views += num_texture_buffers;
     views += num_image_buffers;
+    u32 texture_descriptor_index = 0;
     for (const auto& desc : info.texture_descriptors) {
         bool is_rescaled{};
         for (u32 index = 0; index < desc.count; ++index) {
             const VideoCommon::ImageViewId image_view_id{(views++)->id};
             const VideoCommon::SamplerId sampler_id{*(samplers++)};
             ImageView& image_view{texture_cache.GetImageView(image_view_id)};
+
+            // Identify cubemaps by the backing GPU image address, not by descriptor
+            // binding/array position. The same image can be exposed through multiple
+            // ImageViews and reused by many draw calls.
+            if ((desc.type == Shader::TextureType::ColorCube ||
+                 desc.type == Shader::TextureType::ColorArrayCube) &&
+                GPU::Logging::IsActive()) {
+                const auto& size = image_view.size;
+                const std::string resource_info =
+                    "gpu_addr=" + std::to_string(image_view.gpu_addr) +
+                    " image_id=" + std::to_string(image_view.image_id.index) +
+                    " descriptor=" + std::to_string(texture_descriptor_index) +
+                    " element=" + std::to_string(index) +
+                    " type=" + std::to_string(static_cast<u32>(desc.type)) +
+                    " extent=" + std::to_string(size.width) + "x" +
+                    std::to_string(size.height) + "x" + std::to_string(size.depth) +
+                    " format=" + std::to_string(static_cast<u32>(image_view.format));
+                GPU::Logging::GPULogger::GetInstance().LogImageOperation(
+                    "CubemapResource", resource_info);
+            }
+
             VkImageView vk_image_view{image_view.Handle(desc.type)};
             if (vk_image_view == VK_NULL_HANDLE) {
                 const VkImageView null_image_view{texture_cache.GetImageView(VideoCommon::NULL_IMAGE_VIEW_ID).Handle(desc.type)};
@@ -377,6 +401,7 @@ inline void PushImageDescriptors(TextureCache& texture_cache,
             is_rescaled |= element_rescaled;
         }
         rescaling.PushTexture(is_rescaled);
+        ++texture_descriptor_index;
     }
     for (const auto& desc : info.image_descriptors) {
         bool is_rescaled{};
