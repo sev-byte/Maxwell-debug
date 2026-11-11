@@ -380,6 +380,7 @@ inline void PushImageDescriptors(TextureCache& texture_cache,
                 desc.type == Shader::TextureType::ColorCube ||
                 desc.type == Shader::TextureType::ColorArrayCube;
             u32 cubemap_slot = 16;
+            bool newly_seen_cubemap = false;
             if (is_cubemap) {
                 // Slots are assigned to backing GPU image addresses, not descriptor
                 // positions. Multiple views of one image therefore share a switch.
@@ -390,9 +391,10 @@ inline void PushImageDescriptors(TextureCache& texture_cache,
                     const auto [it, inserted] = cubemap_slots.try_emplace(
                         image_view.gpu_addr, static_cast<u32>(cubemap_slots.size()));
                     cubemap_slot = it->second;
+                    newly_seen_cubemap = inserted;
                 }
 
-                if (GPU::Logging::IsActive()) {
+                if (newly_seen_cubemap && GPU::Logging::IsActive()) {
                     const auto& size = image_view.size;
                     const std::string resource_info =
                         "slot=" + std::to_string(cubemap_slot) +
