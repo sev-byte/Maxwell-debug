@@ -93,6 +93,12 @@ enum class BooleanSetting(override val key: String) : AbstractBooleanSetting {
     GPU_LOG_MEMORY_TRACKING("gpu_log_memory_tracking"),
     GPU_LOG_DRIVER_DEBUG("gpu_log_driver_debug"),
 
+    // Skyrim downsampling-chain diagnostic switches
+    SKYRIM_SUPPRESS_DOWNSAMPLE_2X2("skyrim_suppress_downsample_2x2"),
+    SKYRIM_SUPPRESS_DOWNSAMPLE_7X4("skyrim_suppress_downsample_7x4"),
+    SKYRIM_SUPPRESS_DOWNSAMPLE_25X15("skyrim_suppress_downsample_25x15"),
+    SKYRIM_SUPPRESS_DOWNSAMPLE_ALL("skyrim_suppress_downsample_all"),
+
     ENABLE_QUICK_SETTINGS("enable_quick_settings");
 
     //external fun isFrameSkippingEnabled(): Boolean
