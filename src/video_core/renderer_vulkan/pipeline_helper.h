@@ -393,7 +393,7 @@ inline void PushImageDescriptors(TextureCache& texture_cache,
             }
             VkImageView vk_image_view{image_view.Handle(desc.type)};
             if (is_cubemap) {
-                vk_image_view = texture_cache.runtime.GetDiagnosticCubemapView(
+                vk_image_view = texture_cache.GetRuntime().GetDiagnosticCubemapView(
                     cubemap_slot, desc.type == Shader::TextureType::ColorArrayCube);
                 if (newly_seen_cubemap && GPU::Logging::IsActive()) {
                     const auto& size = image_view.size;
