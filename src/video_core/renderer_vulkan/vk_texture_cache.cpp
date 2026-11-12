@@ -988,6 +988,7 @@ VkImageView TextureCacheRuntime::GetDiagnosticCubemapView(u32 slot, bool cube_ar
         constexpr u32 extent = 64;
         constexpr size_t face_bytes = extent * extent * 4;
         constexpr size_t image_bytes = face_bytes * 6;
+        // 3x7 bitmap font, indexed A-Z followed by 1-9 and a fallback glyph.
         const char* const glyphs[] = {
             "010101101111101101101", "110101110101101110110",
             "011100010001001101110", "110101101101101110110",
@@ -1017,37 +1018,49 @@ VkImageView TextureCacheRuntime::GetDiagnosticCubemapView(u32 slot, bool cube_ar
         const char digit = static_cast<char>('1' + slot % 9);
         std::array<u8, image_bytes> pixels{};
         const std::array<std::array<u8, 3>, 6> palette{{
-            {{255, 70, 70}}, {{70, 220, 255}}, {{255, 220, 55}},
-            {{180, 100, 255}}, {{80, 255, 130}}, {{255, 120, 220}}
+            {{255, 35, 35}}, {{0, 210, 255}}, {{255, 210, 0}},
+            {{190, 60, 255}}, {{0, 245, 100}}, {{255, 55, 190}}
         }};
         const auto color = palette[slot % palette.size()];
         for (u32 face = 0; face < 6; ++face) {
             for (u32 y = 0; y < extent; ++y) {
                 for (u32 x = 0; x < extent; ++x) {
-                    const u32 tx = x % 32;
-                    const u32 ty = y % 20;
                     const u32 cell = (face * face_bytes) + (y * extent + x) * 4;
-                    pixels[cell + 0] = static_cast<u8>(18 + (slot * 17) % 35);
-                    pixels[cell + 1] = static_cast<u8>(20 + (slot * 11) % 35);
-                    pixels[cell + 2] = static_cast<u8>(28 + (slot * 7) % 35);
+                    const bool checker = ((x / 8) + (y / 8) + face) & 1;
+                    const u8 shade = checker ? 150 : 75;
+                    pixels[cell + 0] = static_cast<u8>(color[0] * shade / 255);
+                    pixels[cell + 1] = static_cast<u8>(color[1] * shade / 255);
+                    pixels[cell + 2] = static_cast<u8>(color[2] * shade / 255);
                     pixels[cell + 3] = 255;
+
+                    // Put a large, high-contrast A1-style identifier in the centre
+                    // of every face. Each 3x7 glyph is enlarged to 7x7 pixels.
                     const char chars[2]{letter, digit};
                     for (u32 ci = 0; ci < 2; ++ci) {
                         const char* bits = glyph(chars[ci]);
-                        const u32 gx = ci == 0 ? 5 : 19;
-                        if (tx < gx || tx >= gx + 9 || ty < 2 || ty >= 17) continue;
-                        const u32 px = (tx - gx) / 3;
-                        const u32 py = (ty - 2) / 3;
-                        if (bits[py * 3 + px] != '1') continue;
-                        const auto ink = ci == 0 ? color : palette[(slot + 3) % palette.size()];
-                        pixels[cell + 0] = ink[0];
-                        pixels[cell + 1] = ink[1];
-                        pixels[cell + 2] = ink[2];
-                    }
-                    if ((tx == 0 || ty == 0) && ((slot + face) & 1)) {
+                        const u32 gx = ci == 0 ? 5 : 38;
+                        if (x < gx || x >= gx + 21 || y < 7 || y >= 56) {
+                            continue;
+                        }
+                        const u32 px = (x - gx) / 7;
+                        const u32 py = (y - 7) / 7;
+                        if (bits[py * 3 + px] != '1') {
+                            continue;
+                        }
+                        // Black one-pixel outline makes the white glyph readable
+                        // even when texture filtering blends it with the background.
                         pixels[cell + 0] = 255;
                         pixels[cell + 1] = 255;
                         pixels[cell + 2] = 255;
+                    }
+
+                    // Different thick edge bars identify the sampled cube face.
+                    if (y < 4 || y >= 60 || x < 4 || x >= 60) {
+                        const bool marker = ((x + face * 7) / 6) % 2 == 0;
+                        const u8 value = marker ? 255 : 10;
+                        pixels[cell + 0] = value;
+                        pixels[cell + 1] = value;
+                        pixels[cell + 2] = value;
                     }
                 }
             }
