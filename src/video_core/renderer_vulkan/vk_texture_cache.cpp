@@ -2636,6 +2636,25 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::NullImageV
     for (u32 i = 0; i < Shader::NUM_TEXTURE_TYPES; i++) {
         image_views[i] = MakeView(VK_FORMAT_A8B8G8R8_UNORM_PACK32, VK_IMAGE_ASPECT_COLOR_BIT);
     }
+
+    // A cube descriptor cannot legally reference the generic 1D fallback image.
+    // Build a dedicated six-layer, cube-compatible image and the two cube views.
+    ImageInfo cube_info{};
+    cube_info.format = PixelFormat::A8B8G8R8_UNORM;
+    cube_info.type = ImageType::e2D;
+    cube_info.size = {1, 1, 1};
+    cube_info.resources.layers = 6;
+    null_cube_image = MakeImage(*device, runtime.memory_allocator, cube_info, {});
+
+    const VkImage previous_image_handle = image_handle;
+    image_handle = *null_cube_image;
+    image_views[static_cast<size_t>(Shader::TextureType::ColorCube)] =
+        MakeView(VK_FORMAT_A8B8G8R8_UNORM_PACK32, VK_IMAGE_ASPECT_COLOR_BIT,
+                 Shader::TextureType::ColorCube);
+    image_views[static_cast<size_t>(Shader::TextureType::ColorArrayCube)] =
+        MakeView(VK_FORMAT_A8B8G8R8_UNORM_PACK32, VK_IMAGE_ASPECT_COLOR_BIT,
+                 Shader::TextureType::ColorArrayCube);
+    image_handle = previous_image_handle;
 }
 
 ImageView::~ImageView() = default;
