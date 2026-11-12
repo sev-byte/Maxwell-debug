@@ -89,7 +89,7 @@ public:
     // Skyrim diagnostic capture: records guest constant-buffer bindings and their raw bytes.
     void LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address, u32 size,
                                  std::span<const u8> data, bool read_ok);
-    void LogSkyrimDraw(const std::string& draw_info);
+    void LogSkyrimDraw(const std::string& draw_info, const std::array<u64, 6>& shader_hashes);
     void FlushSkyrimCaptureIfNeeded();
     void LogMemoryAllocation(uintptr_t memory, u64 size, u32 memory_flags);
     void LogMemoryDeallocation(uintptr_t memory);
