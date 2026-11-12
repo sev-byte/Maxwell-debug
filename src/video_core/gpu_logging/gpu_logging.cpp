@@ -500,6 +500,16 @@ void GPULogger::LogImageOperation(const std::string& operation, const std::strin
     const auto log_entry = fmt::format("[{}] [Image] {}: {}\n",
         FormatTimestamp(timestamp), operation, image_info);
     WriteToLog(log_entry);
+
+    // These resource/suppression records are diagnostic evidence used after a
+    // test run. Flush each entry so a force-stop or emulator crash does not
+    // discard the last useful records from the userspace file buffer.
+    {
+        std::lock_guard lock(file_mutex);
+        if (gpu_log_file && gpu_log_file->IsOpen()) {
+            gpu_log_file->Flush();
+        }
+    }
 }
 
 void GPULogger::LogClearOperation(const std::string& clear_info) {
