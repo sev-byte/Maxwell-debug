@@ -1098,6 +1098,36 @@ abstract class SettingsItem(
                     descriptionId = R.string.gpu_log_driver_debug_description
                 )
             )
+
+            // Skyrim downsampling-chain diagnostic switches
+            put(
+                SwitchSetting(
+                    BooleanSetting.SKYRIM_SUPPRESS_DOWNSAMPLE_2X2,
+                    titleId = R.string.skyrim_suppress_downsample_2x2,
+                    descriptionId = R.string.skyrim_suppress_downsample_2x2_description
+                )
+            )
+            put(
+                SwitchSetting(
+                    BooleanSetting.SKYRIM_SUPPRESS_DOWNSAMPLE_7X4,
+                    titleId = R.string.skyrim_suppress_downsample_7x4,
+                    descriptionId = R.string.skyrim_suppress_downsample_7x4_description
+                )
+            )
+            put(
+                SwitchSetting(
+                    BooleanSetting.SKYRIM_SUPPRESS_DOWNSAMPLE_25X15,
+                    titleId = R.string.skyrim_suppress_downsample_25x15,
+                    descriptionId = R.string.skyrim_suppress_downsample_25x15_description
+                )
+            )
+            put(
+                SwitchSetting(
+                    BooleanSetting.SKYRIM_SUPPRESS_DOWNSAMPLE_ALL,
+                    titleId = R.string.skyrim_suppress_downsample_all,
+                    descriptionId = R.string.skyrim_suppress_downsample_all_description
+                )
+            )
             put(
                 SpinBoxSetting(
                     IntSetting.GPU_LOG_RING_BUFFER_SIZE,
