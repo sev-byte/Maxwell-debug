@@ -326,6 +326,43 @@ void DumpSpirvShader(u64 shader_hash, std::span<const u32> spirv_code) {
     static_cast<void>(shader_file.WriteSpan(spirv_code));
 }
 
+
+void GPULogger::LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address, u32 size,
+                                        std::span<const u8> data, bool read_ok) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue() || (index != 5 && index != 15)) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    std::string entry = fmt::format(
+        "[{}] [SkyrimCB] wall_ms={} stage={} slot={} gpu_va={:#x} size={} read={} data=",
+        FormatTimestamp(mono), wall, stage, index, gpu_address, size,
+        read_ok ? "ok" : "failed");
+    if (read_ok) {
+        constexpr char hex[] = "0123456789abcdef";
+        for (const u8 byte : data) {
+            entry.push_back(hex[byte >> 4]);
+            entry.push_back(hex[byte & 0x0f]);
+        }
+    }
+    entry.push_back('\n');
+    WriteToLog(entry);
+}
+
+void GPULogger::LogSkyrimDraw(const std::string& draw_info) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    WriteToLog(fmt::format("[{}] [SkyrimDraw] wall_ms={} {}\\n",
+                           FormatTimestamp(mono), wall, draw_info));
+}
+
 void GPULogger::LogPipelineStateChange(const std::string& state_info) {
     if (!initialized || current_level == LogLevel::Off) {
         return;
