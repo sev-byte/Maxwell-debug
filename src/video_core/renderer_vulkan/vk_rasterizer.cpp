@@ -379,11 +379,16 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
         }
 
         // Timestamped Skyrim draw marker, paired with CB5/CB15 snapshots captured on bind.
+        const auto* current_pipeline = pipeline_cache.CurrentGraphicsPipeline();
+        const std::array<u64, 6> shader_hashes = current_pipeline
+            ? current_pipeline->ShaderHashes()
+            : std::array<u64, 6>{};
         GPU::Logging::GPULogger::GetInstance().LogSkyrimDraw(
             fmt::format("indexed={} vertices={} instances={} first_index={} base_vertex={} base_instance={}",
                         draw_params.is_indexed, draw_params.num_vertices,
                         draw_params.num_instances, draw_params.first_index,
-                        draw_params.base_vertex, draw_params.base_instance));
+                        draw_params.base_vertex, draw_params.base_instance),
+            shader_hashes);
 
         // Log draw call
         if (GPU::Logging::IsActive() &&
