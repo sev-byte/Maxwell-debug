@@ -7,6 +7,8 @@
 #pragma once
 
 #include <span>
+#include <mutex>
+#include <vector>
 
 #include "video_core/texture_cache/texture_cache_base.h"
 
@@ -117,6 +119,14 @@ public:
 
     [[nodiscard]] VkBuffer GetTemporaryBuffer(size_t needed_size);
 
+    struct DiagnosticCubemap {
+        vk::Image image;
+        vk::ImageView cube_view;
+        vk::ImageView cube_array_view;
+    };
+
+    [[nodiscard]] VkImageView GetDiagnosticCubemapView(u32 slot, bool cube_array);
+
     struct ResolveShadow {
         vk::Image image;
         vk::ImageView view;
@@ -186,6 +196,8 @@ public:
     };
 
     std::vector<MsaaScratchImage> msaa_scratch_images;
+    std::mutex diagnostic_cubemap_mutex;
+    std::vector<DiagnosticCubemap> diagnostic_cubemaps;
     ::Common::unordered_map<VkImage, ResolveShadow> resolve_shadows;
     std::vector<std::pair<u64, ResolveShadow>> pending_resolve_shadows;
 };
