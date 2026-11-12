@@ -10,6 +10,7 @@
 #include <optional>
 #include <span>
 #include <memory>
+#include <mutex>
 #include <utility>
 #include <vector>
 #include <boost/container/small_vector.hpp>
@@ -972,6 +973,143 @@ TextureCacheRuntime::TextureCacheRuntime(const Device& device_, Scheduler& sched
 
 void TextureCacheRuntime::Finish() {
     scheduler.Finish();
+}
+
+VkImageView TextureCacheRuntime::GetDiagnosticCubemapView(u32 slot, bool cube_array) {
+    std::scoped_lock lock{diagnostic_cubemap_mutex};
+    if (slot >= 234) {
+        return VK_NULL_HANDLE;
+    }
+    while (diagnostic_cubemaps.size() <= slot) {
+        diagnostic_cubemaps.emplace_back();
+    }
+    DiagnosticCubemap& resource = diagnostic_cubemaps[slot];
+    if (!resource.image) {
+        constexpr u32 extent = 64;
+        constexpr size_t face_bytes = extent * extent * 4;
+        constexpr size_t image_bytes = face_bytes * 6;
+        const char* const glyphs[] = {
+            "010101101111101101101", "110101110101101110110",
+            "011100010001001101110", "110101101101101110110",
+            "111100010110010100111", "111100010110010100100",
+            "011100010101101101011", "101101111101101101101",
+            "111010010010010010111", "001001001001101101010",
+            "101101110100110101101", "100100100100100100111",
+            "101111111101101101101", "110101101101101101101",
+            "010101101101101101010", "110101101110100100100",
+            "010101101101111011001", "110101101110101101101",
+            "011100100010001101110", "111010010010010010010",
+            "101101101101101101111", "101101101101101010010",
+            "101101101101111111101", "101101010010010101101",
+            "101101010010010010010", "111001010010100100111",
+            "010110110110110110010", "010110001010100111110",
+            "110001001010100100111", "110001001010001001110",
+            "101101111001001001001", "111100110001001101110",
+            "011100100110101101010", "111001001010010010010",
+            "010101010101010101010"
+        };
+        const auto glyph = [&](char ch) -> const char* {
+            if (ch >= 'A' && ch <= 'Z') return glyphs[ch - 'A'];
+            if (ch >= '1' && ch <= '9') return glyphs[26 + ch - '1'];
+            return glyphs[35];
+        };
+        const char letter = static_cast<char>('A' + slot / 9);
+        const char digit = static_cast<char>('1' + slot % 9);
+        std::array<u8, image_bytes> pixels{};
+        const std::array<std::array<u8, 3>, 6> palette{{
+            {{255, 70, 70}}, {{70, 220, 255}}, {{255, 220, 55}},
+            {{180, 100, 255}}, {{80, 255, 130}}, {{255, 120, 220}}
+        }};
+        const auto color = palette[slot % palette.size()];
+        for (u32 face = 0; face < 6; ++face) {
+            for (u32 y = 0; y < extent; ++y) {
+                for (u32 x = 0; x < extent; ++x) {
+                    const u32 tx = x % 32;
+                    const u32 ty = y % 20;
+                    const u32 cell = (face * face_bytes) + (y * extent + x) * 4;
+                    pixels[cell + 0] = static_cast<u8>(18 + (slot * 17) % 35);
+                    pixels[cell + 1] = static_cast<u8>(20 + (slot * 11) % 35);
+                    pixels[cell + 2] = static_cast<u8>(28 + (slot * 7) % 35);
+                    pixels[cell + 3] = 255;
+                    const char chars[2]{letter, digit};
+                    for (u32 ci = 0; ci < 2; ++ci) {
+                        const char* bits = glyph(chars[ci]);
+                        const u32 gx = ci == 0 ? 5 : 19;
+                        if (tx < gx || tx >= gx + 9 || ty < 2 || ty >= 17) continue;
+                        const u32 px = (tx - gx) / 3;
+                        const u32 py = (ty - 2) / 3;
+                        if (bits[py * 3 + px] != '1') continue;
+                        const auto ink = ci == 0 ? color : palette[(slot + 3) % palette.size()];
+                        pixels[cell + 0] = ink[0];
+                        pixels[cell + 1] = ink[1];
+                        pixels[cell + 2] = ink[2];
+                    }
+                    if ((tx == 0 || ty == 0) && ((slot + face) & 1)) {
+                        pixels[cell + 0] = 255;
+                        pixels[cell + 1] = 255;
+                        pixels[cell + 2] = 255;
+                    }
+                }
+            }
+        }
+        const VkImageCreateInfo image_ci{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .extent = {extent, extent, 1},
+            .mipLevels = 1,
+            .arrayLayers = 6,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices = nullptr,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        };
+        resource.image = memory_allocator.CreateImage(image_ci);
+        resource.cube_view = device.GetLogical().CreateImageView({
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .image = *resource.image,
+            .viewType = VK_IMAGE_VIEW_TYPE_CUBE,
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                           VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6},
+        });
+        resource.cube_array_view = device.GetLogical().CreateImageView({
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .image = *resource.image,
+            .viewType = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY,
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                           VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6},
+        });
+        StagingBufferRef staging = UploadStagingBuffer(image_bytes, true);
+        std::copy(pixels.begin(), pixels.end(), staging.mapped_span.begin());
+        const VkBufferImageCopy copy{
+            .bufferOffset = staging.offset,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 6},
+            .imageOffset = {0, 0, 0},
+            .imageExtent = {extent, extent, 1},
+        };
+        scheduler.RequestOutsideRenderPassOperationContext();
+        scheduler.Record([buffer = staging.buffer, image = *resource.image, copy](vk::CommandBuffer cmdbuf) {
+            CopyBufferToImage(cmdbuf, buffer, image, VK_IMAGE_ASPECT_COLOR_BIT, false,
+                              std::span<const VkBufferImageCopy>{&copy, 1});
+        });
+        FreeDeferredStagingBuffer(staging);
+    }
+    return cube_array ? *resource.cube_array_view : *resource.cube_view;
 }
 
 StagingBufferRef TextureCacheRuntime::UploadStagingBuffer(size_t size, bool deferred) {
