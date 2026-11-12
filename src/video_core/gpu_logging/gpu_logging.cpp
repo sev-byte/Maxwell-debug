@@ -349,6 +349,7 @@ void GPULogger::LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address
     }
     entry.push_back('\n');
     WriteToLog(entry);
+    FlushSkyrimCaptureIfNeeded();
 }
 
 void GPULogger::LogSkyrimDraw(const std::string& draw_info) {
@@ -361,6 +362,17 @@ void GPULogger::LogSkyrimDraw(const std::string& draw_info) {
         std::chrono::system_clock::now().time_since_epoch()).count();
     WriteToLog(fmt::format("[{}] [SkyrimDraw] wall_ms={} {}\\n",
                            FormatTimestamp(mono), wall, draw_info));
+    FlushSkyrimCaptureIfNeeded();
+}
+
+void GPULogger::FlushSkyrimCaptureIfNeeded() {
+    if ((++skyrim_capture_event_count % 32) != 0) {
+        return;
+    }
+    std::lock_guard lock(file_mutex);
+    if (gpu_log_file && gpu_log_file->IsOpen()) {
+        gpu_log_file->Flush();
+    }
 }
 
 void GPULogger::LogPipelineStateChange(const std::string& state_info) {
