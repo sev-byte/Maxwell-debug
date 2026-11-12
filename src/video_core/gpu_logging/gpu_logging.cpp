@@ -360,7 +360,7 @@ void GPULogger::LogSkyrimDraw(const std::string& draw_info) {
         std::chrono::steady_clock::now().time_since_epoch());
     const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
-    WriteToLog(fmt::format("[{}] [SkyrimDraw] wall_ms={} {}\\n",
+    WriteToLog(fmt::format("[{}] [SkyrimDraw] wall_ms={} {}\n",
                            FormatTimestamp(mono), wall, draw_info));
     FlushSkyrimCaptureIfNeeded();
 }
