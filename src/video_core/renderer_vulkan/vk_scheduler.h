@@ -77,6 +77,9 @@ public:
         return state.renderpass != VK_NULL_HANDLE;
     }
 
+    /// Returns true when the active framebuffer belongs to a selected Skyrim downsampling stage.
+    [[nodiscard]] bool ShouldSuppressSkyrimDownsampleDraw() const;
+
     /// Update the pipeline to the current execution context.
     bool UpdateGraphicsPipeline(GraphicsPipeline* pipeline);
 
