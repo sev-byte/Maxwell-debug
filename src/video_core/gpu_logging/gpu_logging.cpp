@@ -352,7 +352,7 @@ void GPULogger::LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address
     FlushSkyrimCaptureIfNeeded();
 }
 
-void GPULogger::LogSkyrimDraw(const std::string& draw_info) {
+void GPULogger::LogSkyrimDraw(const std::string& draw_info, const std::array<u64, 6>& shader_hashes) {
     if (!Settings::values.maxwell_issue_tracking.GetValue()) {
         return;
     }
@@ -360,8 +360,10 @@ void GPULogger::LogSkyrimDraw(const std::string& draw_info) {
         std::chrono::steady_clock::now().time_since_epoch());
     const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
-    WriteToLog(fmt::format("[{}] [SkyrimDraw] wall_ms={} {}\n",
-                           FormatTimestamp(mono), wall, draw_info));
+    WriteToLog(fmt::format(
+        "[{}] [SkyrimDraw] wall_ms={} {} shader_hashes=[{:#x},{:#x},{:#x},{:#x},{:#x},{:#x}]\n",
+        FormatTimestamp(mono), wall, draw_info, shader_hashes[0], shader_hashes[1],
+        shader_hashes[2], shader_hashes[3], shader_hashes[4], shader_hashes[5]));
     FlushSkyrimCaptureIfNeeded();
 }
 
