@@ -339,7 +339,7 @@ void GPULogger::LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address
     std::string entry = fmt::format(
         "[{}] [SkyrimCB] wall_ms={} stage={} slot={} gpu_va={:#x} size={} read={} data=",
         FormatTimestamp(mono), wall, stage, index, gpu_address, size,
-        read_ok ? "ok" : "failed");
+        read_ok ? "attempted" : "skipped");
     if (read_ok) {
         constexpr char hex[] = "0123456789abcdef";
         for (const u8 byte : data) {
