@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - maxwell-issue-tracking
+      - skyrim-cubemap-resource-isolation
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
