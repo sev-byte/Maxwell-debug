@@ -1541,6 +1541,12 @@ class SettingsFragmentPresenter(
 
             add(HeaderSetting(R.string.general))
 
+            add(HeaderSetting(R.string.skyrim_downsampling_tests))
+            add(BooleanSetting.SKYRIM_SUPPRESS_DOWNSAMPLE_2X2.key)
+            add(BooleanSetting.SKYRIM_SUPPRESS_DOWNSAMPLE_7X4.key)
+            add(BooleanSetting.SKYRIM_SUPPRESS_DOWNSAMPLE_25X15.key)
+            add(BooleanSetting.SKYRIM_SUPPRESS_DOWNSAMPLE_ALL.key)
+
             add(UShortSetting.DEBUG_KNOBS.key)
             add(StringSetting.PROGRAM_ARGS.key)
 
