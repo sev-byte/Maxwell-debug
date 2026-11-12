@@ -4,14 +4,12 @@
     <!-- General application strings -->
     <string name="app_name" translatable="false">Eden</string>
     <string name="skyrim_downsampling_tests">Skyrim downsampling tests</string>
-    <string name="skyrim_suppress_downsample_2x2">Suppress 2×2 stage</string>
-    <string name="skyrim_suppress_downsample_7x4">Suppress 7×4 and 2×2 stages</string>
-    <string name="skyrim_suppress_downsample_25x15">Suppress 25×15 and smaller stages</string>
+    <string name="skyrim_suppress_downsample_7x4">Suppress 7×4 stage only</string>
+    <string name="skyrim_suppress_downsample_25x15">Suppress 25×15 stage only</string>
     <string name="skyrim_suppress_downsample_all">Suppress entire downsampling chain</string>
-    <string name="skyrim_suppress_downsample_2x2_description">Skip graphics draws in the 2×2 render stage for diagnosis.</string>
-    <string name="skyrim_suppress_downsample_7x4_description">Skip graphics draws in the 7×4 and 2×2 render stages for diagnosis.</string>
-    <string name="skyrim_suppress_downsample_25x15_description">Skip graphics draws in the 25×15 and smaller suspected render stages for diagnosis.</string>
-    <string name="skyrim_suppress_downsample_all_description">Skip graphics draws across the suspected downsampling chain for diagnosis.</string>
+    <string name="skyrim_suppress_downsample_7x4_description">Skip graphics draws targeting only the 7×4 render area. The 2×2 stage remains enabled.</string>
+    <string name="skyrim_suppress_downsample_25x15_description">Skip graphics draws targeting only the 25×15 render area. The smaller stages remain enabled.</string>
+    <string name="skyrim_suppress_downsample_all_description">Skip graphics draws targeting all five selected render areas: 400×225, 100×57, 25×15, 7×4 and 2×2.</string>
     <string name="app_disclaimer">This software will run games for the Nintendo Switch game console. No game titles or keys are included.&lt;br /&gt;&lt;br /&gt;Before you begin, please locate your <![CDATA[<b> prod.keys </b>]]> file on your device storage.&lt;br /&gt;&lt;br /&gt;<![CDATA[<a href=\"https://git.eden-emu.dev/eden-emu/eden/src/branch/master/docs/user/QuickStart.md\">Learn more</a>]]></string>
     <string name="notice_notification_channel_name">Notices and errors</string>
     <string name="notice_notification_channel_id" translatable="false">noticesAndErrors</string>
