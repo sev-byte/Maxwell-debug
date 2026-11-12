@@ -231,12 +231,10 @@ bool Scheduler::ShouldSuppressSkyrimDownsampleDraw() const {
     if (Settings::values.skyrim_suppress_downsample_all.GetValue()) {
         return stage_2x2 || stage_7x4 || stage_25x15 || stage_100x57 || stage_400x225;
     }
-    if (Settings::values.skyrim_suppress_downsample_25x15.GetValue() &&
-        (stage_2x2 || stage_7x4 || stage_25x15)) {
+    if (Settings::values.skyrim_suppress_downsample_25x15.GetValue() && stage_25x15) {
         return true;
     }
-    if (Settings::values.skyrim_suppress_downsample_7x4.GetValue() &&
-        (stage_2x2 || stage_7x4)) {
+    if (Settings::values.skyrim_suppress_downsample_7x4.GetValue() && stage_7x4) {
         return true;
     }
     return stage_2x2 && Settings::values.skyrim_suppress_downsample_2x2.GetValue();
