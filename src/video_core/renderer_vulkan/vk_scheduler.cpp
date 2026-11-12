@@ -219,6 +219,29 @@ void Scheduler::RequestRenderpass(const Framebuffer* framebuffer) {
     BeginRenderPassImpl(framebuffer, renderpass, nullptr, 0);
 }
 
+bool Scheduler::ShouldSuppressSkyrimDownsampleDraw() const {
+    const u32 width = state.render_area.width;
+    const u32 height = state.render_area.height;
+    const bool stage_2x2 = width == 2 && height == 2;
+    const bool stage_7x4 = width == 7 && height == 4;
+    const bool stage_25x15 = width == 25 && height == 15;
+    const bool stage_100x57 = width == 100 && height == 57;
+    const bool stage_400x225 = width == 400 && height == 225;
+
+    if (Settings::values.skyrim_suppress_downsample_all.GetValue()) {
+        return stage_2x2 || stage_7x4 || stage_25x15 || stage_100x57 || stage_400x225;
+    }
+    if (Settings::values.skyrim_suppress_downsample_25x15.GetValue() &&
+        (stage_2x2 || stage_7x4 || stage_25x15)) {
+        return true;
+    }
+    if (Settings::values.skyrim_suppress_downsample_7x4.GetValue() &&
+        (stage_2x2 || stage_7x4)) {
+        return true;
+    }
+    return stage_2x2 && Settings::values.skyrim_suppress_downsample_2x2.GetValue();
+}
+
 void Scheduler::RequestOutsideRenderPassOperationContext() {
     EndRenderPass();
 }
