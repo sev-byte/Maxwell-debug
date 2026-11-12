@@ -1047,8 +1047,7 @@ VkImageView TextureCacheRuntime::GetDiagnosticCubemapView(u32 slot, bool cube_ar
                         if (bits[py * 3 + px] != '1') {
                             continue;
                         }
-                        // Black one-pixel outline makes the white glyph readable
-                        // even when texture filtering blends it with the background.
+                        // White glyphs contrast strongly against the saturated checkerboard.
                         pixels[cell + 0] = 255;
                         pixels[cell + 1] = 255;
                         pixels[cell + 2] = 255;
