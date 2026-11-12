@@ -339,6 +339,9 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
         split_attribute_handles = false;
     };
     PrepareDraw(is_indexed, [this, is_indexed, instance_count] {
+        if (scheduler.ShouldSuppressSkyrimDownsampleDraw()) {
+            return;
+        }
         const auto& draw_state = maxwell3d->draw_manager.draw_state;
         const u32 num_instances{instance_count};
         const DrawParams draw_params{MakeDrawParams(draw_state, num_instances, is_indexed)};
