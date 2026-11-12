@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -89,6 +90,7 @@ public:
     void LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address, u32 size,
                                  std::span<const u8> data, bool read_ok);
     void LogSkyrimDraw(const std::string& draw_info);
+    void FlushSkyrimCaptureIfNeeded();
     void LogMemoryAllocation(uintptr_t memory, u64 size, u32 memory_flags);
     void LogMemoryDeallocation(uintptr_t memory);
     void LogShaderCompilation(const std::string& shader_name, const std::string& shader_info);
@@ -170,6 +172,7 @@ private:
     std::unique_ptr<Common::FS::IOFile> gpu_log_file;
     mutable std::mutex file_mutex;
     u64 bytes_written = 0;
+    std::atomic<u64> skyrim_capture_event_count{0};
 
     // Feature flags
     bool track_vulkan_calls = true;
