@@ -900,6 +900,12 @@ struct Values {
     Setting<bool> perform_vulkan_check{linkage, true, "perform_vulkan_check", Category::Debugging};
     Setting<bool> disable_web_applet{linkage, true, "disable_web_applet", Category::Debugging};
 
+    // Skyrim downsampling-chain diagnostic switches (Vulkan draw suppression).
+    Setting<bool> skyrim_suppress_downsample_2x2{linkage, false, "skyrim_suppress_downsample_2x2", Category::Debugging};
+    Setting<bool> skyrim_suppress_downsample_7x4{linkage, false, "skyrim_suppress_downsample_7x4", Category::Debugging};
+    Setting<bool> skyrim_suppress_downsample_25x15{linkage, false, "skyrim_suppress_downsample_25x15", Category::Debugging};
+    Setting<bool> skyrim_suppress_downsample_all{linkage, false, "skyrim_suppress_downsample_all", Category::Debugging};
+
     // Maxwell Issue Tracking (diagnostics only; disabled by default)
     Setting<bool> maxwell_issue_tracking{linkage, false, "maxwell_issue_tracking", Category::Debugging};
     Setting<GpuLogLevel> gpu_log_level{linkage, GpuLogLevel::Off, "gpu_log_level",
