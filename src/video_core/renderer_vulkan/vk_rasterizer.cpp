@@ -378,6 +378,13 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
             record_draw(draw_params);
         }
 
+        // Timestamped Skyrim draw marker, paired with CB5/CB15 snapshots captured on bind.
+        GPU::Logging::GPULogger::GetInstance().LogSkyrimDraw(
+            fmt::format("indexed={} vertices={} instances={} first_index={} base_vertex={} base_instance={}",
+                        draw_params.is_indexed, draw_params.num_vertices,
+                        draw_params.num_instances, draw_params.first_index,
+                        draw_params.base_vertex, draw_params.base_instance));
+
         // Log draw call
         if (GPU::Logging::IsActive() &&
             Settings::values.gpu_log_vulkan_calls.GetValue()) {
@@ -769,6 +776,16 @@ void RasterizerVulkan::Query(GPUVAddr gpu_addr, VideoCommon::QueryType type,
 void RasterizerVulkan::BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr,
                                                  u32 size) {
     buffer_cache.BindGraphicsUniformBuffer(stage, index, gpu_addr, size);
+    if (Settings::values.maxwell_issue_tracking.GetValue() && (index == 5 || index == 15)) {
+        std::vector<u8> bytes(size);
+        bool read_ok = false;
+        if (size != 0 && size <= 64 * 1024) {
+            gpu_memory->ReadBlock(gpu_addr, bytes.data(), size);
+            read_ok = true;
+        }
+        GPU::Logging::GPULogger::GetInstance().LogSkyrimConstantBuffer(
+            stage, index, gpu_addr, size, bytes, read_ok);
+    }
 }
 
 void Vulkan::RasterizerVulkan::DisableGraphicsUniformBuffer(size_t stage, u32 index) {
