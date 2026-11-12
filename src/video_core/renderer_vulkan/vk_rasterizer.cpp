@@ -777,11 +777,13 @@ void RasterizerVulkan::BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAd
                                                  u32 size) {
     buffer_cache.BindGraphicsUniformBuffer(stage, index, gpu_addr, size);
     if (Settings::values.maxwell_issue_tracking.GetValue() && (index == 5 || index == 15)) {
-        std::vector<u8> bytes(size);
+        std::vector<u8> bytes;
         bool read_ok = false;
-        if (size != 0 && size <= 64 * 1024) {
+        // Keep diagnostic overhead bounded; expected Skyrim CB5/CB15 blocks are far smaller.
+        if (size != 0 && size <= 4096) {
+            bytes.resize(size);
             gpu_memory->ReadBlock(gpu_addr, bytes.data(), size);
-            read_ok = true;
+            read_ok = true; // ReadBlock has no status return; this means the read was attempted.
         }
         GPU::Logging::GPULogger::GetInstance().LogSkyrimConstantBuffer(
             stage, index, gpu_addr, size, bytes, read_ok);
