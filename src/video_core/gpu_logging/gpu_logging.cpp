@@ -328,8 +328,10 @@ void DumpSpirvShader(u64 shader_hash, std::span<const u32> spirv_code) {
 
 
 void GPULogger::LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address, u32 size,
-                                        std::span<const u8> data, bool read_ok) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue() || (index != 5 && index != 15)) {
+                                        std::span<const u8> data, bool read_ok,
+                                        const std::array<u64, 6>& shader_hashes) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue() ||
+        (index != 1 && index != 3 && index != 4 && index != 5 && index != 15)) {
         return;
     }
     const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -337,8 +339,36 @@ void GPULogger::LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address
     const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
     std::string entry = fmt::format(
-        "[{}] [SkyrimCB] wall_ms={} stage={} slot={} gpu_va={:#x} size={} read={} data=",
+        "[{}] [SkyrimCB] wall_ms={} stage={} slot={} gpu_va={:#x} size={} read={} "
+        "shader_hashes=[{:#x},{:#x},{:#x},{:#x},{:#x},{:#x}] data=",
         FormatTimestamp(mono), wall, stage, index, gpu_address, size,
+        read_ok ? "attempted" : "skipped", shader_hashes[0], shader_hashes[1],
+        shader_hashes[2], shader_hashes[3], shader_hashes[4], shader_hashes[5]);
+    if (read_ok) {
+        constexpr char hex[] = "0123456789abcdef";
+        for (const u8 byte : data) {
+            entry.push_back(hex[byte >> 4]);
+            entry.push_back(hex[byte & 0x0f]);
+        }
+    }
+    entry.push_back('\n');
+    WriteToLog(entry);
+    FlushSkyrimCaptureIfNeeded();
+}
+
+void GPULogger::LogSkyrimComputeConstantBuffer(u64 shader_hash, u32 index,
+                                               u64 gpu_address, u32 size,
+                                               std::span<const u8> data, bool read_ok) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    std::string entry = fmt::format(
+        "[{}] [SkyrimComputeCB] wall_ms={} shader={:#x} slot={} gpu_va={:#x} size={} read={} data=",
+        FormatTimestamp(mono), wall, shader_hash, index, gpu_address, size,
         read_ok ? "attempted" : "skipped");
     if (read_ok) {
         constexpr char hex[] = "0123456789abcdef";
@@ -349,6 +379,39 @@ void GPULogger::LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address
     }
     entry.push_back('\n');
     WriteToLog(entry);
+    FlushSkyrimCaptureIfNeeded();
+}
+
+void GPULogger::LogSkyrimComputeResource(u64 shader_hash, const char* kind, u32 binding,
+                                         u32 cbuf_index, u32 cbuf_offset, u32 count,
+                                         bool is_written) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    WriteToLog(fmt::format(
+        "[{}] [SkyrimComputeResource] wall_ms={} shader={:#x} kind={} binding={} "
+        "cbuf={} offset={} count={} written={}\n",
+        FormatTimestamp(mono), wall, shader_hash, kind, binding, cbuf_index, cbuf_offset,
+        count, is_written));
+    FlushSkyrimCaptureIfNeeded();
+}
+
+void GPULogger::LogSkyrimComputeDispatch(u64 shader_hash, u32 group_x, u32 group_y,
+                                         u32 group_z) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    WriteToLog(fmt::format(
+        "[{}] [SkyrimCompute] wall_ms={} shader={:#x} groups={}x{}x{}\n",
+        FormatTimestamp(mono), wall, shader_hash, group_x, group_y, group_z));
     FlushSkyrimCaptureIfNeeded();
 }
 

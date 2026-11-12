@@ -88,7 +88,13 @@ public:
     void LogVulkanCall(const std::string& call_name, const std::string& params, int result);
     // Skyrim diagnostic capture: records guest constant-buffer bindings and their raw bytes.
     void LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address, u32 size,
-                                 std::span<const u8> data, bool read_ok);
+                                 std::span<const u8> data, bool read_ok,
+                                 const std::array<u64, 6>& shader_hashes);
+    void LogSkyrimComputeConstantBuffer(u64 shader_hash, u32 index, u64 gpu_address, u32 size,
+                                        std::span<const u8> data, bool read_ok);
+    void LogSkyrimComputeResource(u64 shader_hash, const char* kind, u32 binding, u32 cbuf_index,
+                                  u32 cbuf_offset, u32 count, bool is_written);
+    void LogSkyrimComputeDispatch(u64 shader_hash, u32 group_x, u32 group_y, u32 group_z);
     void LogSkyrimDraw(const std::string& draw_info, const std::array<u64, 6>& shader_hashes);
     void FlushSkyrimCaptureIfNeeded();
     void LogMemoryAllocation(uintptr_t memory, u64 size, u32 memory_flags);

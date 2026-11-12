@@ -170,6 +170,47 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
 
     const auto& qmd{kepler_compute.launch_description};
     const auto& cbufs{qmd.const_buffer_config};
+
+    // Capture the compute shader's actual constant-buffer inputs. Graphics-only
+    // snapshots cannot identify the data used by the per-frame compute dispatch.
+    if (Settings::values.maxwell_issue_tracking.GetValue()) {
+        for (size_t index = 0; index < uniform_buffer_sizes.size(); ++index) {
+            if (((info.constant_buffer_mask >> index) & 1U) == 0 ||
+                ((qmd.const_buffer_enable_mask >> index) & 1U) == 0) {
+                continue;
+            }
+            const u32 size = uniform_buffer_sizes[index];
+            std::vector<u8> bytes;
+            bool read_ok = false;
+            if (size != 0 && size <= 4096) {
+                bytes.resize(size);
+                gpu_memory.ReadBlock(cbufs[index].Address(), bytes.data(), size);
+                read_ok = true; // ReadBlock has no status return; this means attempted.
+            }
+            GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeConstantBuffer(
+                shader_hash, static_cast<u32>(index), cbufs[index].Address(), size, bytes, read_ok);
+        }
+
+        u32 binding = 0;
+        for (const auto& desc : info.storage_buffers_descriptors) {
+            GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeResource(
+                shader_hash, "ssbo", binding++, desc.cbuf_index, desc.cbuf_offset,
+                desc.count, desc.is_written);
+        }
+        binding = 0;
+        for (const auto& desc : info.image_descriptors) {
+            GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeResource(
+                shader_hash, "image", binding++, desc.cbuf_index, desc.cbuf_offset,
+                desc.count, desc.is_written);
+        }
+        binding = 0;
+        for (const auto& desc : info.texture_descriptors) {
+            GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeResource(
+                shader_hash, "texture", binding++, desc.cbuf_index, desc.cbuf_offset,
+                desc.count, false);
+        }
+    }
+
     const bool via_header_index{qmd.linked_tsc != 0};
     const auto read_handle{[&](const auto& desc, u32 index) {
         ASSERT(((qmd.const_buffer_enable_mask >> desc.cbuf_index) & 1) != 0);

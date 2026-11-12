@@ -733,6 +733,8 @@ void RasterizerVulkan::DispatchCompute() {
     if (dim[0] > max_dim[0] || dim[1] > max_dim[1] || dim[2] > max_dim[2]) {
         return;
     }
+    GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeDispatch(
+        pipeline->ShaderHash(), dim[0], dim[1], dim[2]);
     scheduler.RequestOutsideRenderPassOperationContext();
     static constexpr VkMemoryBarrier READ_BARRIER{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
@@ -781,18 +783,33 @@ void RasterizerVulkan::Query(GPUVAddr gpu_addr, VideoCommon::QueryType type,
 void RasterizerVulkan::BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr,
                                                  u32 size) {
     buffer_cache.BindGraphicsUniformBuffer(stage, index, gpu_addr, size);
-    if (Settings::values.maxwell_issue_tracking.GetValue() && (index == 5 || index == 15)) {
-        std::vector<u8> bytes;
-        bool read_ok = false;
-        // Keep diagnostic overhead bounded; expected Skyrim CB5/CB15 blocks are far smaller.
-        if (size != 0 && size <= 4096) {
-            bytes.resize(size);
-            gpu_memory->ReadBlock(gpu_addr, bytes.data(), size);
-            read_ok = true; // ReadBlock has no status return; this means the read was attempted.
-        }
-        GPU::Logging::GPULogger::GetInstance().LogSkyrimConstantBuffer(
-            stage, index, gpu_addr, size, bytes, read_ok);
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
     }
+
+    const auto* current_pipeline = pipeline_cache.CurrentGraphicsPipeline();
+    const std::array<u64, 6> shader_hashes = current_pipeline
+        ? current_pipeline->ShaderHashes()
+        : std::array<u64, 6>{};
+    const bool main_scene_pipeline =
+        shader_hashes[1] == 0xa71664c0a2643d30ULL &&
+        shader_hashes[5] == 0x331f0de4dc79b7baULL;
+    const bool capture_slot = index == 5 || index == 15 ||
+                              (main_scene_pipeline &&
+                               (index == 1 || index == 3 || index == 4));
+    if (!capture_slot) {
+        return;
+    }
+
+    std::vector<u8> bytes;
+    bool read_ok = false;
+    if (size != 0 && size <= 4096) {
+        bytes.resize(size);
+        gpu_memory->ReadBlock(gpu_addr, bytes.data(), size);
+        read_ok = true; // ReadBlock has no status return; this means the read was attempted.
+    }
+    GPU::Logging::GPULogger::GetInstance().LogSkyrimConstantBuffer(
+        stage, index, gpu_addr, size, bytes, read_ok, shader_hashes);
 }
 
 void Vulkan::RasterizerVulkan::DisableGraphicsUniformBuffer(size_t stage, u32 index) {
