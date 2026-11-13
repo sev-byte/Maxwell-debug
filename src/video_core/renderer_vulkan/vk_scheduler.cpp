@@ -107,6 +107,30 @@ void Scheduler::BeginRenderPassImpl(const Framebuffer* framebuffer, VkRenderPass
                         framebuffer->NumImages());
         GPU::Logging::GPULogger::GetInstance().LogRenderPassBegin(render_pass_info);
     }
+    if (Settings::values.maxwell_issue_tracking.GetValue()) {
+        std::string attachment_info = fmt::format(
+            "event=begin framebuffer={:#x} render_area={}x{} attachment_count={}",
+            reinterpret_cast<uintptr_t>(framebuffer_handle), render_area.width, render_area.height,
+            framebuffer->NumImages());
+        const auto& images = framebuffer->Images();
+        const auto& ranges = framebuffer->ImageRanges();
+        for (u32 i = 0; i < framebuffer->NumImages(); ++i) {
+            const auto& range = ranges[i];
+            attachment_info += fmt::format(
+                " attachment{}={{image={:#x},aspect={:#x},mip={},mips={},layer={},layers={}}}",
+                i, reinterpret_cast<uintptr_t>(images[i]), range.aspectMask, range.baseMipLevel,
+                range.levelCount, range.baseArrayLayer, range.layerCount);
+        }
+        attachment_info += fmt::format(" clear_value_count={}", clear_value_count);
+        for (u32 i = 0; i < clear_value_count; ++i) {
+            const auto& clear = clear_values[i];
+            attachment_info += fmt::format(
+                " clear{}={{color={},{},{},{};depth_stencil={},{} }}", i,
+                clear.color.float32[0], clear.color.float32[1], clear.color.float32[2],
+                clear.color.float32[3], clear.depthStencil.depth, clear.depthStencil.stencil);
+        }
+        GPU::Logging::GPULogger::GetInstance().LogSkyrimRenderPass(attachment_info);
+    }
 
     std::array<VkClearValue, 9> values{};
     for (u32 i = 0; i < clear_value_count && i < values.size(); ++i) {
