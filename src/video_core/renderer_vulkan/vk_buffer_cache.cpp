@@ -578,7 +578,7 @@ bool BufferCacheRuntime::BindMultiRangeStorageBuffer(u64 key, bool is_written) {
 
 void BufferCacheRuntime::BindIndexBuffer(PrimitiveTopology topology, IndexFormat index_format,
                                          u32 base_vertex, u32 num_indices, VkBuffer buffer,
-                                         u32 offset, [[maybe_unused]] u32 size) {
+                                         u32 offset, u32 size) {
     VkIndexType vk_index_type = MaxwellToVK::IndexFormat(index_format);
     VkDeviceSize vk_offset = offset;
     VkBuffer vk_buffer = buffer;
@@ -601,6 +601,11 @@ void BufferCacheRuntime::BindIndexBuffer(PrimitiveTopology topology, IndexFormat
         // Vulkan doesn't support null index buffers. Replace it with our own null buffer.
         ReserveNullBuffer();
         vk_buffer = *null_buffer;
+    }
+    if (Settings::values.maxwell_issue_tracking.GetValue()) {
+        GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
+            "index", 0, reinterpret_cast<uintptr_t>(vk_buffer), 0,
+            static_cast<u32>(vk_offset), size, false, scheduler.CurrentTick());
     }
     scheduler.Record([vk_buffer, vk_offset, vk_index_type](vk::CommandBuffer cmdbuf) {
         cmdbuf.BindIndexBuffer(vk_buffer, vk_offset, vk_index_type);
@@ -629,6 +634,11 @@ void BufferCacheRuntime::BindVertexBuffer(u32 index, VkBuffer buffer, u32 offset
     if (index >= device.GetMaxVertexInputBindings()) {
         return;
     }
+    if (Settings::values.maxwell_issue_tracking.GetValue()) {
+        GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
+            "vertex_single", 0, reinterpret_cast<uintptr_t>(buffer), 0,
+            offset, size, false, scheduler.CurrentTick());
+    }
     if (device.IsExtExtendedDynamicStateSupported()) {
         scheduler.Record([index, buffer, offset, size, stride](vk::CommandBuffer cmdbuf) {
             const VkDeviceSize vk_offset = buffer != VK_NULL_HANDLE ? offset : 0;
@@ -649,6 +659,15 @@ void BufferCacheRuntime::BindVertexBuffer(u32 index, VkBuffer buffer, u32 offset
 }
 
 void BufferCacheRuntime::BindVertexBuffers(VideoCommon::HostBindings<Buffer>& bindings) {
+    if (Settings::values.maxwell_issue_tracking.GetValue()) {
+        for (size_t i = 0; i < bindings.buffers.size(); ++i) {
+            const Buffer& buffer = *bindings.buffers[i];
+            GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
+                "vertex", static_cast<u64>(buffer.CpuAddr()),
+                reinterpret_cast<uintptr_t>(buffer.Handle()), buffer.DeviceAddress(),
+                bindings.offsets[i], bindings.sizes[i], false, scheduler.CurrentTick());
+        }
+    }
     boost::container::static_vector<VkBuffer, VideoCommon::NUM_VERTEX_BUFFERS> buffer_handles(bindings.buffers.size());
     for (u32 i = 0; i < bindings.buffers.size(); ++i) {
         auto handle = bindings.buffers[i]->Handle();
