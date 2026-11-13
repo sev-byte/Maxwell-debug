@@ -96,7 +96,7 @@ public:
                                   u32 cbuf_offset, u32 count, bool is_written);
     void LogSkyrimComputeDispatch(u64 shader_hash, u32 group_x, u32 group_y, u32 group_z);
     void LogSkyrimBufferAccess(const char* kind, u64 buffer_cpu_addr, uintptr_t vk_buffer,
-                               u64 device_address, u32 offset, u32 size, bool is_written,
+                               u64 device_address, u64 offset, u64 size, bool is_written,
                                u64 scheduler_tick);
     void LogSkyrimComputeBarrierProbe(u64 shader_hash, const char* path, u32 group_x,
                                       u32 group_y, u32 group_z, bool barrier_recorded);
