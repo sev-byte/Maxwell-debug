@@ -605,7 +605,7 @@ void BufferCacheRuntime::BindIndexBuffer(PrimitiveTopology topology, IndexFormat
     if (Settings::values.maxwell_issue_tracking.GetValue()) {
         GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
             "index", 0, reinterpret_cast<uintptr_t>(vk_buffer), 0,
-            static_cast<u32>(vk_offset), size, false, scheduler.CurrentTick());
+            vk_offset, size, false, scheduler.CurrentTick());
     }
     scheduler.Record([vk_buffer, vk_offset, vk_index_type](vk::CommandBuffer cmdbuf) {
         cmdbuf.BindIndexBuffer(vk_buffer, vk_offset, vk_index_type);
