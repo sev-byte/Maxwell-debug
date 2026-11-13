@@ -415,6 +415,19 @@ void GPULogger::LogSkyrimComputeDispatch(u64 shader_hash, u32 group_x, u32 group
     FlushSkyrimCaptureIfNeeded();
 }
 
+void GPULogger::LogSkyrimRenderPass(const std::string& attachment_info) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    WriteToLog(fmt::format("[{}] [SkyrimAttachment] wall_ms={} {}\\n",
+                           FormatTimestamp(mono), wall, attachment_info));
+    FlushSkyrimCaptureIfNeeded();
+}
+
 void GPULogger::LogSkyrimDraw(const std::string& draw_info, const std::array<u64, 6>& shader_hashes) {
     if (!Settings::values.maxwell_issue_tracking.GetValue()) {
         return;
