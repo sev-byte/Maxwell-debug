@@ -215,7 +215,7 @@ public:
             GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
                 "uniform", static_cast<u64>(buffer.CpuAddr()),
                 reinterpret_cast<uintptr_t>(buffer.Handle()), buffer.DeviceAddress(),
-                offset, size, false, scheduler.CurrentTick());
+                offset, size, false, CurrentTick());
         }
         BindBuffer(buffer, offset, size);
     }
@@ -225,7 +225,7 @@ public:
             GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
                 "storage", static_cast<u64>(buffer.CpuAddr()),
                 reinterpret_cast<uintptr_t>(buffer.Handle()), buffer.DeviceAddress(),
-                offset, size, is_written, scheduler.CurrentTick());
+                offset, size, is_written, CurrentTick());
         }
         BindBuffer(buffer, offset, size);
     }
