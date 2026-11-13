@@ -96,6 +96,7 @@ public:
                                   u32 cbuf_offset, u32 count, bool is_written);
     void LogSkyrimComputeDispatch(u64 shader_hash, u32 group_x, u32 group_y, u32 group_z);
     void LogSkyrimDraw(const std::string& draw_info, const std::array<u64, 6>& shader_hashes);
+    void LogSkyrimRenderPass(const std::string& attachment_info);
     void FlushSkyrimCaptureIfNeeded();
     void LogMemoryAllocation(uintptr_t memory, u64 size, u32 memory_flags);
     void LogMemoryDeallocation(uintptr_t memory);
