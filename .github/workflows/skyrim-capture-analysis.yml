@@ -1,0 +1,78 @@
+name: Skyrim Capture Analysis - Runner Self Test
+
+on:
+  push:
+    branches:
+      - skyrim-capture-analysis
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-check:
+    name: Python and shell runtime check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check shell and system utilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Shell ==="
+          bash --version | head -n 1
+          echo "=== Core utilities ==="
+          sha256sum --version | head -n 1
+          unzip -v | head -n 1 || true
+          echo "=== Disk ==="
+          df -h .
+
+      - name: Check Python and streaming ZIP/log support
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 --version
+          python3 - <<'PY'
+          import hashlib
+          import io
+          import os
+          import platform
+          import tempfile
+          import zipfile
+
+          print("Python executable:", platform.python_implementation())
+          print("Python version:", platform.python_version())
+          print("Platform:", platform.platform())
+          print("Available disk bytes:", shutil_disk_free := __import__("shutil").disk_usage(".").free)
+
+          # Create and verify a small ZIP without relying on any external package.
+          payload = (b"skyrim-capture-runtime-self-test\n" * 4096)
+          with tempfile.TemporaryDirectory() as tmp:
+              archive = os.path.join(tmp, "self-test.zip")
+              with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                  zf.writestr("sample.log", payload)
+              with zipfile.ZipFile(archive, "r") as zf:
+                  assert zf.testzip() is None, "ZIP CRC validation failed"
+                  digest = hashlib.sha256()
+                  with zf.open("sample.log") as stream:
+                      while chunk := stream.read(1024 * 1024):
+                          digest.update(chunk)
+                  assert digest.hexdigest() == hashlib.sha256(payload).hexdigest()
+          print("ZIP create/open/CRC/stream/hash: PASS")
+
+          # Exercise incremental parsing with the log record shapes we need.
+          sample = (
+              "[123.456] [SkyrimDraw] wall_ms=100 indexed=true vertices=6 instances=1 "
+              "shader_hashes=[0x0,0xa71664c0a2643d30,0x0,0x0,0x0,0x331f0de4dc79b7ba]\n"
+              "[123.457] [SkyrimCB] wall_ms=101 stage=0 slot=5 gpu_va=0x1234 size=256 "
+              "read=attempted shader_hashes=[0x0,0xa71664c0a2643d30,0x0,0x0,0x0,0x331f0de4dc79b7ba] data=abcd\n"
+          )
+          counts = {"SkyrimDraw": 0, "SkyrimCB": 0}
+          for line in io.StringIO(sample):
+              for marker in counts:
+                  if f"[{marker}]" in line:
+                      counts[marker] += 1
+          assert counts == {"SkyrimDraw": 1, "SkyrimCB": 1}, counts
+          print("Incremental SkyrimDraw/SkyrimCB parser smoke test: PASS")
+          print("ALL RUNTIME TESTS PASSED")
+          PY
