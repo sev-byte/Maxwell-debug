@@ -444,8 +444,8 @@ void GPULogger::LogSkyrimDraw(const std::string& draw_info, const std::array<u64
 }
 
 void GPULogger::LogSkyrimBufferAccess(const char* kind, u64 buffer_cpu_addr,
-                                      uintptr_t vk_buffer, u64 device_address, u32 offset,
-                                      u32 size, bool is_written, u64 scheduler_tick) {
+                                      uintptr_t vk_buffer, u64 device_address, u64 offset,
+                                      u64 size, bool is_written, u64 scheduler_tick) {
     if (!Settings::values.maxwell_issue_tracking.GetValue()) {
         return;
     }
