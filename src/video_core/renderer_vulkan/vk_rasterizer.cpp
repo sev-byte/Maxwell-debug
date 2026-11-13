@@ -6,8 +6,10 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 
 #include <fmt/format.h>
 
@@ -801,9 +803,28 @@ void RasterizerVulkan::BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAd
         return;
     }
 
+    // CB1 is a 64 KiB dynamically indexed table used by the main scene
+    // fragment shader. Capture one full snapshot per buffer roughly once
+    // per rendered frame; logging every bind would duplicate the same data
+    // many times per frame.
+    if (main_scene_pipeline && index == 1) {
+        static std::mutex cb1_capture_mutex;
+        static std::unordered_map<GPUVAddr, std::chrono::steady_clock::time_point>
+            last_cb1_capture;
+        const auto now = std::chrono::steady_clock::now();
+        std::lock_guard lock(cb1_capture_mutex);
+        const auto it = last_cb1_capture.find(gpu_addr);
+        if (it != last_cb1_capture.end() &&
+            now - it->second < std::chrono::milliseconds(75)) {
+            return;
+        }
+        last_cb1_capture[gpu_addr] = now;
+    }
+
     std::vector<u8> bytes;
     bool read_ok = false;
-    if (size != 0 && size <= 4096) {
+    const u32 max_capture_size = (main_scene_pipeline && index == 1) ? 65536 : 4096;
+    if (size != 0 && size <= max_capture_size) {
         bytes.resize(size);
         gpu_memory->ReadBlock(gpu_addr, bytes.data(), size);
         read_ok = true; // ReadBlock has no status return; this means the read was attempted.
