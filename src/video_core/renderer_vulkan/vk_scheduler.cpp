@@ -123,11 +123,12 @@ void Scheduler::BeginRenderPassImpl(const Framebuffer* framebuffer, VkRenderPass
         }
         attachment_info += fmt::format(" clear_value_count={}", clear_value_count);
         for (u32 i = 0; i < clear_value_count; ++i) {
-            const auto& clear = clear_values[i];
+            const auto* raw = reinterpret_cast<const u8*>(&clear_values[i]);
             attachment_info += fmt::format(
-                " clear{}={{color={},{},{},{};depth_stencil={},{} }}", i,
-                clear.color.float32[0], clear.color.float32[1], clear.color.float32[2],
-                clear.color.float32[3], clear.depthStencil.depth, clear.depthStencil.stencil);
+                " clear{}={{raw={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}"
+                "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}}}",
+                i, raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
+                raw[8], raw[9], raw[10], raw[11], raw[12], raw[13], raw[14], raw[15]);
         }
         GPU::Logging::GPULogger::GetInstance().LogSkyrimRenderPass(attachment_info);
     }
