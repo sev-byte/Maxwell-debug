@@ -1048,6 +1048,13 @@ abstract class SettingsItem(
                 )
             )
             put(
+                SwitchSetting(
+                    BooleanSetting.MAXWELL_COMPUTE_BARRIER_PROBE,
+                    titleId = R.string.maxwell_compute_barrier_probe,
+                    descriptionId = R.string.maxwell_compute_barrier_probe_description
+                )
+            )
+            put(
                 SingleChoiceSetting(
                     ByteSetting.GPU_LOG_LEVEL,
                     titleId = R.string.gpu_log_level,

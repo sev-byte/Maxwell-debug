@@ -10,6 +10,8 @@
 
 #include <boost/container/small_vector.hpp>
 
+#include "common/settings.h"
+#include "video_core/gpu_logging/gpu_logging.h"
 #include "video_core/buffer_cache/buffer_cache_base.h"
 #include "video_core/buffer_cache/memory_tracker_base.h"
 #include "video_core/buffer_cache/usage_tracker.h"
@@ -209,11 +211,22 @@ public:
     }
 
     void BindUniformBuffer(const Buffer& buffer, u32 offset, u32 size) {
+        if (Settings::values.maxwell_issue_tracking.GetValue()) {
+            GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
+                "uniform", static_cast<u64>(buffer.CpuAddr()),
+                reinterpret_cast<uintptr_t>(buffer.Handle()), buffer.DeviceAddress(),
+                offset, size, false, scheduler.CurrentTick());
+        }
         BindBuffer(buffer, offset, size);
     }
 
-    void BindStorageBuffer(const Buffer& buffer, u32 offset, u32 size,
-                           [[maybe_unused]] bool is_written) {
+    void BindStorageBuffer(const Buffer& buffer, u32 offset, u32 size, bool is_written) {
+        if (Settings::values.maxwell_issue_tracking.GetValue()) {
+            GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
+                "storage", static_cast<u64>(buffer.CpuAddr()),
+                reinterpret_cast<uintptr_t>(buffer.Handle()), buffer.DeviceAddress(),
+                offset, size, is_written, scheduler.CurrentTick());
+        }
         BindBuffer(buffer, offset, size);
     }
 

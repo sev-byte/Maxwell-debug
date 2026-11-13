@@ -661,6 +661,8 @@
     <string name="gpu_logging_header">Maxwell Issue Tracking</string>
     <string name="maxwell_issue_tracking">Enable tracking</string>
     <string name="maxwell_issue_tracking_description">Collect extra GPU and Vulkan diagnostics to help investigate graphical issues. Does not change rendering behaviour. Off by default.</string>
+    <string name="maxwell_compute_barrier_probe">Compute-write barrier probe</string>
+    <string name="maxwell_compute_barrier_probe_description">Experimental A/B test: adds a broad Vulkan memory barrier after guest compute dispatches and logs which shader dispatches receive it. Enable Maxwell Issue Tracking too. May reduce performance; off by default.</string>
     <string name="gpu_log_level">Diagnostic detail level</string>
     <string name="gpu_log_level_description">Controls how much GPU diagnostic information is recorded. Higher levels create larger logs and may add overhead.</string>
     <string name="gpu_log_vulkan_calls">Log Vulkan API Calls</string>

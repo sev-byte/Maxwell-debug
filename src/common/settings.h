@@ -902,6 +902,9 @@ struct Values {
 
     // Maxwell Issue Tracking (diagnostics only; disabled by default)
     Setting<bool> maxwell_issue_tracking{linkage, false, "maxwell_issue_tracking", Category::Debugging};
+    // Experimental broad compute-write visibility probe; off by default.
+    Setting<bool> maxwell_compute_barrier_probe{linkage, false, "maxwell_compute_barrier_probe",
+                                                Category::Debugging};
     Setting<GpuLogLevel> gpu_log_level{linkage, GpuLogLevel::Off, "gpu_log_level",
                                        Category::Debugging};
     Setting<bool> gpu_log_vulkan_calls{linkage, true, "gpu_log_vulkan_calls", Category::Debugging};

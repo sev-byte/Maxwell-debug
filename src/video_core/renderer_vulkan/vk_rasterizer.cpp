@@ -385,11 +385,25 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
         const std::array<u64, 6> shader_hashes = current_pipeline
             ? current_pipeline->ShaderHashes()
             : std::array<u64, 6>{};
+        std::string draw_resources = fmt::format("scheduler_tick={}", scheduler.CurrentTick());
+        const auto& regs = maxwell3d->regs;
+        for (size_t stream_index = 0; stream_index < regs.vertex_streams.size(); ++stream_index) {
+            const auto& stream = regs.vertex_streams[stream_index];
+            if (stream.IsEnabled()) {
+                draw_resources += fmt::format(" guest_vb{}_gpu_va={:#x}", stream_index,
+                                              stream.Address());
+            }
+        }
+        if (draw_params.is_indexed) {
+            draw_resources += fmt::format(" guest_ib_gpu_va={:#x} index_bytes={}",
+                                          draw_state.index_buffer.IndexStart(),
+                                          draw_state.index_buffer.FormatSizeInBytes());
+        }
         GPU::Logging::GPULogger::GetInstance().LogSkyrimDraw(
-            fmt::format("indexed={} vertices={} instances={} first_index={} base_vertex={} base_instance={}",
+            fmt::format("indexed={} vertices={} instances={} first_index={} base_vertex={} base_instance={} {}",
                         draw_params.is_indexed, draw_params.num_vertices,
                         draw_params.num_instances, draw_params.first_index,
-                        draw_params.base_vertex, draw_params.base_instance),
+                        draw_params.base_vertex, draw_params.base_instance, draw_resources),
             shader_hashes);
 
         // Log draw call
@@ -712,6 +726,15 @@ void RasterizerVulkan::DispatchCompute() {
         return;
     }
 
+    const u64 shader_hash = pipeline->ShaderHash();
+    const bool barrier_probe = Settings::values.maxwell_compute_barrier_probe.GetValue();
+    static constexpr VkMemoryBarrier COMPUTE_WRITE_BARRIER{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
+    };
+
     const auto& qmd{kepler_compute->launch_description};
     auto indirect_address = kepler_compute->GetIndirectComputeAddress();
     if (indirect_address) {
@@ -722,11 +745,19 @@ void RasterizerVulkan::DispatchCompute() {
             buffer_cache.ObtainBuffer(*indirect_address, 12, sync_info, post_op);
         scheduler.RequestOutsideRenderPassOperationContext();
         scheduler.Record([pipeline, indirect_buffer = buffer->Handle(),
-                          indirect_offset = offset](vk::CommandBuffer cmdbuf) {
+                          indirect_offset = offset, shader_hash,
+                          barrier_probe](vk::CommandBuffer cmdbuf) {
             if (!pipeline->IsBound()) {
                 return;
             }
             cmdbuf.DispatchIndirect(indirect_buffer, indirect_offset);
+            if (barrier_probe) {
+                cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                       VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+                                       COMPUTE_WRITE_BARRIER);
+            }
+            GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeBarrierProbe(
+                shader_hash, "indirect", 0, 0, 0, barrier_probe);
         });
         return;
     }
@@ -736,7 +767,7 @@ void RasterizerVulkan::DispatchCompute() {
         return;
     }
     GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeDispatch(
-        pipeline->ShaderHash(), dim[0], dim[1], dim[2]);
+        shader_hash, dim[0], dim[1], dim[2]);
     scheduler.RequestOutsideRenderPassOperationContext();
     static constexpr VkMemoryBarrier READ_BARRIER{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
@@ -746,11 +777,18 @@ void RasterizerVulkan::DispatchCompute() {
     };
     scheduler.Record([](vk::CommandBuffer cmdbuf) { cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                0, READ_BARRIER); });
-    scheduler.Record([pipeline, dim](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([pipeline, dim, shader_hash, barrier_probe](vk::CommandBuffer cmdbuf) {
         if (!pipeline->IsBound()) {
             return;
         }
         cmdbuf.Dispatch(dim[0], dim[1], dim[2]);
+        if (barrier_probe) {
+            cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                   VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+                                   COMPUTE_WRITE_BARRIER);
+        }
+        GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeBarrierProbe(
+            shader_hash, "direct", dim[0], dim[1], dim[2], barrier_probe);
     });
 
     // Log compute dispatch

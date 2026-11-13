@@ -443,6 +443,69 @@ void GPULogger::LogSkyrimDraw(const std::string& draw_info, const std::array<u64
     FlushSkyrimCaptureIfNeeded();
 }
 
+void GPULogger::LogSkyrimBufferAccess(const char* kind, u64 buffer_cpu_addr,
+                                      uintptr_t vk_buffer, u64 device_address, u32 offset,
+                                      u32 size, bool is_written, u64 scheduler_tick) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    WriteToLog(fmt::format(
+        "[{}] [SkyrimBufferAccess] wall_ms={} kind={} buffer_cpu_addr={:#x} vk_buffer={:#x} "
+        "device_addr={:#x} offset={} size={} access={} scheduler_tick={}\n",
+        FormatTimestamp(mono), wall, kind, buffer_cpu_addr, vk_buffer, device_address,
+        offset, size, is_written ? "write" : "read", scheduler_tick));
+    FlushSkyrimCaptureIfNeeded();
+}
+
+void GPULogger::LogSkyrimComputeBarrierProbe(u64 shader_hash, const char* path, u32 group_x,
+                                             u32 group_y, u32 group_z,
+                                             bool barrier_recorded) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    WriteToLog(fmt::format(
+        "[{}] [SkyrimBarrierProbe] wall_ms={} shader={:#x} path={} groups={}x{}x{} "
+        "result={} src_stage=COMPUTE_SHADER src_access=SHADER_WRITE "
+        "dst_stage=ALL_COMMANDS dst_access=MEMORY_READ|MEMORY_WRITE\n",
+        FormatTimestamp(mono), wall, shader_hash, path, group_x, group_y, group_z,
+        barrier_recorded ? "barrier_recorded" : "barrier_disabled"));
+    FlushSkyrimCaptureIfNeeded();
+}
+
+void GPULogger::LogSkyrimQueueSubmit(u64 tick, int result) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    WriteToLog(fmt::format("[{}] [SkyrimQueueSubmit] wall_ms={} tick={} vk_result={}\n",
+                           FormatTimestamp(mono), wall, tick, result));
+    FlushSkyrimCaptureIfNeeded();
+}
+
+void GPULogger::LogSkyrimGpuComplete(u64 tick, const char* source) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    WriteToLog(fmt::format("[{}] [SkyrimGpuComplete] wall_ms={} tick={} source={}\n",
+                           FormatTimestamp(mono), wall, tick, source));
+    FlushSkyrimCaptureIfNeeded();
+}
+
 void GPULogger::FlushSkyrimCaptureIfNeeded() {
     if ((++skyrim_capture_event_count % 32) != 0) {
         return;

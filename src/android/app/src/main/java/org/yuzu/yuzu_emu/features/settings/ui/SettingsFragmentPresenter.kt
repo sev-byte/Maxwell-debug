@@ -1547,6 +1547,7 @@ class SettingsFragmentPresenter(
             if (!NativeConfig.isPerGameConfigLoaded()) {
                 add(HeaderSetting(R.string.gpu_logging_header))
                 add(BooleanSetting.MAXWELL_ISSUE_TRACKING.key)
+                add(BooleanSetting.MAXWELL_COMPUTE_BARRIER_PROBE.key)
                 add(ByteSetting.GPU_LOG_LEVEL.key)
                 add(BooleanSetting.GPU_LOG_VULKAN_CALLS.key)
                 add(BooleanSetting.DUMP_GUEST_SHADERS.key)

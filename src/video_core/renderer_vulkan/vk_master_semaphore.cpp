@@ -8,6 +8,7 @@
 
 #include <ranges>
 #include "common/settings.h"
+#include "video_core/gpu_logging/gpu_logging.h"
 #include "video_core/renderer_vulkan/vk_master_semaphore.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
@@ -74,6 +75,9 @@ void MasterSemaphore::Refresh() {
         }
     } while (!gpu_tick.compare_exchange_weak(this_tick, counter, std::memory_order_release,
                                              std::memory_order_relaxed));
+    if (counter > this_tick) {
+        GPU::Logging::GPULogger::GetInstance().LogSkyrimGpuComplete(counter, "timeline");
+    }
 }
 
 void MasterSemaphore::Wait(u64 tick) {
@@ -113,12 +117,12 @@ void MasterSemaphore::Wait(u64 tick) {
 VkResult MasterSemaphore::SubmitQueue(vk::CommandBuffer& cmdbuf, vk::CommandBuffer& upload_cmdbuf,
                                       VkSemaphore signal_semaphore, VkSemaphore wait_semaphore,
                                       u64 host_tick) {
-    if (semaphore) {
-        return SubmitQueueTimeline(cmdbuf, upload_cmdbuf, signal_semaphore, wait_semaphore,
-                                   host_tick);
-    } else {
-        return SubmitQueueFence(cmdbuf, upload_cmdbuf, signal_semaphore, wait_semaphore, host_tick);
-    }
+    const VkResult result = semaphore
+        ? SubmitQueueTimeline(cmdbuf, upload_cmdbuf, signal_semaphore, wait_semaphore, host_tick)
+        : SubmitQueueFence(cmdbuf, upload_cmdbuf, signal_semaphore, wait_semaphore, host_tick);
+    GPU::Logging::GPULogger::GetInstance().LogSkyrimQueueSubmit(host_tick,
+                                                                static_cast<int>(result));
+    return result;
 }
 
 static constexpr VkPipelineStageFlags wait_stage_mask = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
@@ -354,6 +358,7 @@ void MasterSemaphore::WaitThread(std::stop_token token) {
             gpu_tick.store(host_tick, std::memory_order_release);
         }
         gpu_tick.notify_one();
+        GPU::Logging::GPULogger::GetInstance().LogSkyrimGpuComplete(host_tick, "fence");
     }
 }
 
