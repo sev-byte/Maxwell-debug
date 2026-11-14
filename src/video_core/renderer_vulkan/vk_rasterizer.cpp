@@ -723,6 +723,7 @@ void RasterizerVulkan::DispatchCompute() {
     }
 
     const u64 shader_hash = pipeline->ShaderHash();
+    const bool barrier_probe = Settings::values.maxwell_compute_barrier_probe.GetValue();
     const auto& cadence_qmd{kepler_compute->launch_description};
     constexpr u64 SKYRIM_CADENCE_SHADER = 0x4577aed68dd75eccULL;
     constexpr std::array<u32, 3> SKYRIM_CADENCE_GROUPS{320, 6, 1};
