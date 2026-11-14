@@ -52,3 +52,35 @@ Once the targeted extraction completes, use the executable as the cross-referenc
 ## Known game identifier
 
 The internal archive path and earlier Eden capture both record title ID `01000A10041EA000`. Record the exact base-game/update/DLC state in the private repository's `MANIFEST.md`.
+
+
+## New archive cross-reference findings (2026-11-14)
+
+The owner's private release has now been inspected through temporary GitHub Actions runners. The detailed metadata-only report is in the private archive's [INSPECTION.md](https://github.com/sev-byte/Skyrim-exefs-romfs/blob/main/INSPECTION.md); the extracted binaries remain private and were removed from the runners after inspection.
+
+### Executable and budget-setting lead
+
+- The update-labelled NSO0 executable was extracted and all three decompressed NSO sections matched their embedded SHA-256 values.
+- The string fMsLightCount:BudgetCaps is at module address 0x0169B628 in rodata.
+- Two exact ARM64 ADRP+ADD address constructions occur at 0x000FE5B4 and 0x000FE63C. Each writes the string pointer into a structure and sets a float default of 0.01. These appear to be setting-registration/default initialisation sites, not the runtime enforcement loop.
+- A page-level scan returned 271 ADRP candidates to the 4 KiB page, but only those two exact address constructions so far. Do not treat all 271 as direct string references.
+
+### Mesh and material cross-reference
+
+The Rust Skyrim-aware NIF parser successfully parsed selected candle, wall-sconce, cave-lamp, firepit, torch, light-marker and light-effect assets with no truncation, block recovery or link errors.
+
+The Imperial candle and wall-sconce meshes separate the warm emissive candle geometry from the non-emissive metal/body geometry:
+- impcandle01.nif has a candle-facing shape with emissive colour (1.0, 0.804, 0.463) and emissive multiple about 0.8704; its body shape has zero emissive colour.
+- impchandelliercandle01.nif has two warm-emissive candle shapes (emissive multiples about 1.1402 and 0.8704) and two zero-emissive geometry shapes.
+- impwallsconcecandle01.nif has a warm-emissive candle shape with multiplier about 0.8704 and a separate zero-emissive body.
+- impwallsconcecandle02.nif has a candle-facing multiplier about 1.1402 and separate non-emissive body.
+
+Those candle NIFs also contain BSLightingShaderPropertyFloatController blocks. The NIF format enum defines controller-variable value 11 as Emissive Multiple, so the controller target/keyframe data is the next asset-level check. This may affect visible flame/glow, but it is not itself proof of the dynamic point-light flicker observed by the user.
+
+Other selected effect NIFs (candle flame, small fire, torch fire, Dawnguard beam and Falmer brazier effects) contain BSEffectShaderProperty and particle-system blocks. The markers are visual geometry. These files do not by themselves identify the placed light radius/intensity/flicker settings.
+
+### Remaining game-side gap
+
+The current uploaded root path is labelled + update. Base-game plugin records are not yet confirmed in this archive. To connect static mesh assets to the actual dynamic scene lights, the next data needed is the appropriate base-game plugin records (light definitions and placed references), then to correlate their mesh paths, radii, intensities and flicker flags with the runtime resource/dispatch traces. Keep static-file results distinct from Maxwell runtime evidence.
+
+Do not infer the root cause from the NIFs alone: the candle material animation, placed light objects and Maxwell's GPU dispatch/resource behaviour are three separate layers that still need to be connected.
