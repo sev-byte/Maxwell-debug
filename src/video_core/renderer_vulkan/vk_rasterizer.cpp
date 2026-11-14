@@ -873,9 +873,12 @@ void RasterizerVulkan::BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAd
     const std::array<u64, 6> shader_hashes = current_pipeline
         ? current_pipeline->ShaderHashes()
         : std::array<u64, 6>{};
+    // Captures contain both the earlier unstable fragment and the stable
+    // scene fragment for this vertex shader. Include both in CB1/CB3/CB4 tracing.
     const bool main_scene_pipeline =
         shader_hashes[1] == 0xa71664c0a2643d30ULL &&
-        shader_hashes[5] == 0x331f0de4dc79b7baULL;
+        (shader_hashes[5] == 0x331f0de4dc79b7baULL ||
+         shader_hashes[5] == 0x58484bdeb060359cULL);
     const bool capture_slot = index == 5 || index == 15 ||
                               (main_scene_pipeline &&
                                (index == 1 || index == 3 || index == 4));
