@@ -88,3 +88,14 @@ Super special thanks to Cloudflare for preventing the git server from blowing up
 - Ryubing
 
 And everyone who continues or had contributed to the project! <3
+
+
+## Skyrim lighting diagnostics (experimental)
+
+This branch contains test-only GPU/Vulkan instrumentation for investigating Skyrim lighting flicker. The matching Eden 98 compute-barrier A/B captures are maintained separately in [`sev-byte/Eden-98-barrier-off-on`](https://github.com/sev-byte/Eden-98-barrier-off-on).
+
+- [Barrier A/B release and capture assets](https://github.com/sev-byte/Eden-98-barrier-off-on/releases/tag/capture-a-barrier-off-on)
+- [Test rationale, implementation and diagnostic-build history](./docs/skyrim-barrier-ab-test.md)
+- [Commit introducing the compute-write barrier probe](https://github.com/sev-byte/Maxwell-debug/commit/4176a67bded689e6bc7fb7f071799e18b1eef51d)
+
+The OFF and ON captures both keep Maxwell Issue Tracking enabled; the compute-barrier probe is the intended A/B variable. The probe is deliberately broad and experimental, not a production rendering fix.
