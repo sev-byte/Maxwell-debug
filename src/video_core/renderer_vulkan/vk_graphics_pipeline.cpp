@@ -366,6 +366,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
         u32 cbuf_offset{};
         u32 guest_handle{};
         Shader::TextureType texture_type{Shader::TextureType::Color2D};
+        Shader::ImageFormat image_format{Shader::ImageFormat::Typeless};
         bool is_read{};
         bool is_written{};
     };
@@ -424,8 +425,9 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
             return TexturePair(gpu_memory->Read<u32>(addr), via_header_index);
         }};
         const auto add_image{[&](const auto& desc, bool blacklist, const char* kind,
-                                  Shader::TextureType texture_type, bool is_read,
-                                  bool is_written, u32& binding_index) LAMBDA_FORCEINLINE {
+                                  Shader::TextureType texture_type, Shader::ImageFormat image_format,
+                                  bool is_read, bool is_written,
+                                  u32& binding_index) LAMBDA_FORCEINLINE {
             for (u32 index = 0; index < desc.count; ++index) {
                 const auto handle{read_handle(desc, index)};
                 const size_t view_index = views.size();
@@ -440,6 +442,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
                         .cbuf_offset = desc.cbuf_offset,
                         .guest_handle = handle.first,
                         .texture_type = texture_type,
+                        .image_format = image_format,
                         .is_read = is_read,
                         .is_written = is_written,
                     });
@@ -456,14 +459,14 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
         if constexpr (Spec::has_texture_buffers) {
             for (const auto& desc : info.texture_buffer_descriptors) {
                 add_image(desc, false, "texture_buffer", Shader::TextureType::Buffer,
-                          true, false, texture_buffer_binding);
+                          Shader::ImageFormat::Typeless, true, false, texture_buffer_binding);
             }
         }
         u32 image_buffer_binding{};
         if constexpr (Spec::has_image_buffers) {
             for (const auto& desc : info.image_buffer_descriptors) {
                 add_image(desc, false, "image_buffer", Shader::TextureType::Buffer,
-                          desc.is_read, desc.is_written, image_buffer_binding);
+                          desc.format, desc.is_read, desc.is_written, image_buffer_binding);
             }
         }
         u32 texture_binding{};
@@ -497,7 +500,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
         if constexpr (Spec::has_images) {
             for (const auto& desc : info.image_descriptors) {
                 add_image(desc, desc.is_written, "storage_image", desc.type,
-                          desc.is_read, desc.is_written, image_binding);
+                          desc.format, desc.is_read, desc.is_written, image_binding);
             }
         }
 
@@ -535,9 +538,13 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
             const uintptr_t vk_image =
                 reinterpret_cast<uintptr_t>(image_view.ImageHandle());
             uintptr_t vk_image_view{};
+            const u32 descriptor_format = static_cast<u32>(trace.image_format);
             if (trace.texture_type != Shader::TextureType::Buffer) {
-                vk_image_view =
-                    reinterpret_cast<uintptr_t>(image_view.Handle(trace.texture_type));
+                const VkImageView bound_view =
+                    trace.kind == std::string_view{"storage_image"}
+                        ? image_view.StorageView(trace.texture_type, trace.image_format)
+                        : image_view.Handle(trace.texture_type);
+                vk_image_view = reinterpret_cast<uintptr_t>(bound_view);
             }
 
             const auto& range = image_view.range;
@@ -550,7 +557,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
             const std::string signature = fmt::format(
                 "{:#x}:{:#x}:{:#x}:{:#x}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
                 trace.guest_handle, image_view.GpuAddr(), vk_image, vk_image_view,
-                image_view.BufferSize(), pixel_format, view_type, extent.width,
+                image_view.BufferSize(), pixel_format, view_type, descriptor_format, extent.width,
                 extent.height, extent.depth, range.base.level, range.extent.levels,
                 range.base.layer, range.extent.layers, image_view.invalidation_tick,
                 image_view.modification_tick);
@@ -569,7 +576,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
                     scheduler_tick, trace.stage, trace.kind, trace.binding, trace.element,
                     trace.cbuf_index, trace.cbuf_offset, trace.guest_handle,
                     image_view.GpuAddr(), vk_image, vk_image_view, image_view.BufferSize(),
-                    pixel_format, view_type, extent.width, extent.height, extent.depth,
+                    pixel_format, view_type, descriptor_format, extent.width, extent.height, extent.depth,
                     range.base.level, range.extent.levels, range.base.layer,
                     range.extent.layers, view_flags, image_view.invalidation_tick,
                     image_view.modification_tick, trace.is_read, trace.is_written);
