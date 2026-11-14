@@ -473,7 +473,7 @@ void GPULogger::LogSkyrimComputeCadence(u64 shader_hash, u32 group_x, u32 group_
         std::chrono::system_clock::now().time_since_epoch()).count();
     WriteToLog(fmt::format(
         "[{}] [SkyrimComputeCadence] wall_ms={} shader={:#x} groups={}x{}x{} "
-        "target_interval_ns={} inserted_wait_us={} policy=delay_preserve_dispatch\\n",
+        "target_interval_ns={} inserted_wait_us={} policy=delay_preserve_dispatch\n",
         FormatTimestamp(mono), wall, shader_hash, group_x, group_y, group_z,
         target_interval_ns, wait_us));
     FlushSkyrimCaptureIfNeeded();
