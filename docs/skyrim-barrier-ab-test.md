@@ -80,3 +80,31 @@ The first comparison should use only the two timestamp windows above and should 
 - [Render-pass timing/identity tracing](https://github.com/sev-byte/Maxwell-debug/commit/d41eab985a80f00ddc2e48bb4ba2e496c4dca8db).
 - [Native recorder frame association](https://github.com/sev-byte/Maxwell-debug/commit/20714065df10483a845d8da1f7f9e7615e6311c9).
 - [Compute barrier probe and resource timeline](https://github.com/sev-byte/Maxwell-debug/commit/4176a67bded689e6bc7fb7f071799e18b1eef51d).
+
+
+## Visual and dispatch-cadence follow-up — 14 November 2026
+
+The paired recordings were aligned to the exact video-correlated event windows and analysed per frame. The active gameplay segments used for one-second correlation were 30 seconds OFF (video-relative seconds 15–44) and 15 seconds ON (seconds 5–19), excluding loading/menu seconds.
+
+- Centre-screen grayscale threshold crossings: OFF 272/30 s = 9.07/s; ON 99/15 s = 6.60/s.
+- Large frame-to-frame brightness jumps (>30 grayscale units): OFF 267/30 s = 8.90/s; ON 97/15 s = 6.47/s.
+- The ON clip still shows repeated bright/dark changes. The barrier did not eliminate the flicker in this test.
+
+One-second event-count correlation between \`SkyrimCompute\` and brightness-transition count was Pearson \`r=0.540\` / Spearman \`ρ=0.628\` OFF, versus Pearson \`r=0.071\` / Spearman \`ρ=0.268\` ON. This may indicate that the barrier changes the alignment between bursts of rendering activity and visible brightness changes. The sample is small and camera paths differ, so it is not causal proof.
+
+Probe \`wall_ms\` timestamps inside the full gameplay seconds show:
+
+| Timing | OFF | ON |
+|---|---:|---:|
+| Probe count | 537 | 203 |
+| Rate | 17.90/s | 13.53/s |
+| Mean interval | 55.87 ms | 73.97 ms |
+| Median interval | 56 ms | 73 ms |
+| P10–P90 interval | 48–62 ms | 69–80 ms |
+| Interval CV | 0.094 | 0.063 |
+
+This is evidence that the barrier slows and slightly regularises the **host-side dispatch-record cadence**. It is not a measurement of hardware GPU execution/completion time.
+
+**Current conclusion:** the broad post-compute barrier changes the dispatch rhythm and appears to reduce the measured brightness-transition rate, but flicker remains visible. It is not a fix as tested. A controlled repeat from the same saved position, with a fixed camera and identical 30-second OFF/ON windows, is needed before assigning the visual reduction to the barrier.
+
+Full data and methodology: [capture repository visual/GPU correlation report](https://github.com/sev-byte/Eden-98-barrier-off-on/blob/main/analysis/video-gpu-correlation.md). Successful correlation/timing workflow: [run #10](https://github.com/sev-byte/Eden-98-barrier-off-on/actions/runs/43542953191).
