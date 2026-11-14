@@ -428,6 +428,34 @@ void GPULogger::LogSkyrimRenderPass(const std::string& attachment_info) {
     FlushSkyrimCaptureIfNeeded();
 }
 
+void GPULogger::LogSkyrimGraphicsResource(
+    u64 scheduler_tick, u32 stage, const char* kind, u32 binding, u32 element,
+    u32 cbuf_index, u32 cbuf_offset, u32 guest_handle, u64 gpu_addr,
+    uintptr_t vk_image, uintptr_t vk_image_view, u32 buffer_size, u32 pixel_format,
+    u32 view_type, u32 width, u32 height, u32 depth, s32 base_mip, s32 mip_count,
+    s32 base_layer, s32 layer_count, u32 view_flags, u64 invalidation_tick,
+    u64 modification_tick, bool is_read, bool is_written) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    WriteToLog(fmt::format(
+        "[{}] [SkyrimGraphicsResource] wall_ms={} tick={} stage={} kind={} binding={} element={} "
+        "cbuf={} offset={} guest_handle={:#x} gpu_va={:#x} vk_image={:#x} vk_view={:#x} "
+        "buffer_size={} pixel_format={} view_type={} extent={}x{}x{} "
+        "mips={}+{} layers={}+{} flags={:#x} invalidation_tick={} modification_tick={} "
+        "read={} written={}\\n",
+        FormatTimestamp(mono), wall, scheduler_tick, stage, kind, binding, element,
+        cbuf_index, cbuf_offset, guest_handle, gpu_addr, vk_image, vk_image_view,
+        buffer_size, pixel_format, view_type, width, height, depth, base_mip, mip_count,
+        base_layer, layer_count, view_flags, invalidation_tick, modification_tick,
+        is_read, is_written));
+    FlushSkyrimCaptureIfNeeded();
+}
+
 void GPULogger::LogSkyrimDraw(const std::string& draw_info, const std::array<u64, 6>& shader_hashes) {
     if (!Settings::values.maxwell_issue_tracking.GetValue()) {
         return;
