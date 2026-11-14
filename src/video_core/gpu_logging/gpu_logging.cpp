@@ -461,6 +461,24 @@ void GPULogger::LogSkyrimBufferAccess(const char* kind, u64 buffer_cpu_addr,
     FlushSkyrimCaptureIfNeeded();
 }
 
+void GPULogger::LogSkyrimComputeCadence(u64 shader_hash, u32 group_x, u32 group_y,
+                                          u32 group_z, u64 target_interval_ns,
+                                          u64 wait_us) {
+    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+        return;
+    }
+    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    WriteToLog(fmt::format(
+        "[{}] [SkyrimComputeCadence] wall_ms={} shader={:#x} groups={}x{}x{} "
+        "target_interval_ns={} inserted_wait_us={} policy=delay_preserve_dispatch\\n",
+        FormatTimestamp(mono), wall, shader_hash, group_x, group_y, group_z,
+        target_interval_ns, wait_us));
+    FlushSkyrimCaptureIfNeeded();
+}
+
 void GPULogger::LogSkyrimComputeBarrierProbe(u64 shader_hash, const char* path, u32 group_x,
                                              u32 group_y, u32 group_z,
                                              bool barrier_recorded) {
