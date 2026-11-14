@@ -35,6 +35,10 @@ Use the same unstable save position, camera direction, run duration and graphics
 
 The broad barrier and cadence limiter are independent toggles. Do not attribute an improvement to a targeted resource barrier from this test; this branch changes timing only.
 
+## Related original game-data archive
+
+The owner's original Switch game data is kept separately in the private [Skyrim-exefs-romfs repository](https://github.com/sev-byte/Skyrim-exefs-romfs). See [the source archive notes](./skyrim-exefs-romfs-source.md) for provenance and how the data relates to the investigation. No game binaries are stored in this Maxwell source repository.
+
 ## Important scope limitation
 
 The hash/dimensions above identify the compute shader used in the recent barrier captures. Before treating this as the definitive stable-versus-unstable render sequence, verify it against the exact sequence identified in the earlier stable-control comparison. The limiter is a diagnostic intervention, not a proposed production fix.
