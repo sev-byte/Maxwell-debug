@@ -723,7 +723,7 @@ void RasterizerVulkan::DispatchCompute() {
     }
 
     const u64 shader_hash = pipeline->ShaderHash();
-    const auto& qmd{kepler_compute->launch_description};
+    const auto& cadence_qmd{kepler_compute->launch_description};
     constexpr u64 SKYRIM_CADENCE_SHADER = 0x4577aed68dd75eccULL;
     constexpr std::array<u32, 3> SKYRIM_CADENCE_GROUPS{320, 6, 1};
     constexpr auto SKYRIM_CADENCE_INTERVAL = std::chrono::nanoseconds{33'333'333};
@@ -733,9 +733,9 @@ void RasterizerVulkan::DispatchCompute() {
     if (Settings::values.maxwell_compute_cadence_30hz.GetValue() &&
         shader_hash == SKYRIM_CADENCE_SHADER &&
         !kepler_compute->GetIndirectComputeAddress() &&
-        qmd.grid_dim_x == SKYRIM_CADENCE_GROUPS[0] &&
-        qmd.grid_dim_y == SKYRIM_CADENCE_GROUPS[1] &&
-        qmd.grid_dim_z == SKYRIM_CADENCE_GROUPS[2]) {
+        cadence_qmd.grid_dim_x == SKYRIM_CADENCE_GROUPS[0] &&
+        cadence_qmd.grid_dim_y == SKYRIM_CADENCE_GROUPS[1] &&
+        cadence_qmd.grid_dim_z == SKYRIM_CADENCE_GROUPS[2]) {
         u64 wait_us{};
         {
             std::unique_lock cadence_lock{compute_cadence_mutex};
