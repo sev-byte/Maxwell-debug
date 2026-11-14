@@ -752,7 +752,7 @@ void RasterizerVulkan::DispatchCompute() {
         }
         GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeCadence(
             shader_hash, SKYRIM_CADENCE_GROUPS[0], SKYRIM_CADENCE_GROUPS[1],
-            SKYRIM_CADENCE_GROUPS[2], SKYRIM_CADENCE_INTERVAL.count(), wait_us);
+            SKYRIM_CADENCE_GROUPS[2], static_cast<u64>(SKYRIM_CADENCE_INTERVAL.count()), wait_us);
     }
 
     std::scoped_lock lock{texture_cache.mutex, buffer_cache.mutex};
