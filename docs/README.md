@@ -24,6 +24,13 @@ This contains documentation created by developers, build instructions, guideline
   - **[HOS Kernel](./HosKernel.md)**
   - **[Settings](./Settings.md)**
 
+## Skyrim lighting investigation
+
+- **[Private Skyrim Switch exefs/romfs archive](https://github.com/sev-byte/Skyrim-exefs-romfs)** — the original owner-supplied game-data source; repository access is restricted.
+- **[Source archive notes](./skyrim-exefs-romfs-source.md)** — purpose, provenance fields and how the game-data archive connects to the Maxwell investigation.
+- **[Stable-versus-unstable cadence test](./skyrim-stable-cadence-test.md)** — prior compute-dispatch timing experiment.
+- **[Barrier A/B test](./skyrim-barrier-ab-test.md)** — earlier Vulkan synchronization experiment.
+
 ## Policies
 
 Policies and information on development.
