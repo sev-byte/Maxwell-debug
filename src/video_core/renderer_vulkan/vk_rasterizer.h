@@ -7,6 +7,8 @@
 #pragma once
 
 #include <array>
+#include <chrono>
+#include <mutex>
 
 #include <boost/container/static_vector.hpp>
 
@@ -243,6 +245,10 @@ private:
     boost::container::static_vector<VkSampler, MAX_TEXTURES> sampler_handles;
 
     u32 draw_counter = 0;
+
+    // Serializes the diagnostic 30 Hz cadence limiter for the target Skyrim compute dispatch.
+    std::mutex compute_cadence_mutex;
+    std::chrono::steady_clock::time_point next_skyrim_compute_dispatch{};
 };
 
 } // namespace Vulkan
