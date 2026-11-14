@@ -7,7 +7,10 @@
 #include <algorithm>
 #include <cstring>
 #include <iostream>
+#include <mutex>
 #include <span>
+#include <string>
+#include <unordered_map>
 
 #include <boost/container/small_vector.hpp>
 #include <boost/container/static_vector.hpp>
@@ -353,8 +356,27 @@ void GraphicsPipeline::AddTransition(GraphicsPipeline* transition) {
 
 template <typename Spec>
 bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
+    struct SkyrimResourceTrace {
+        size_t view_index{};
+        u32 stage{};
+        const char* kind{};
+        u32 binding{};
+        u32 element{};
+        u32 cbuf_index{};
+        u32 cbuf_offset{};
+        u32 guest_handle{};
+        Shader::TextureType texture_type{Shader::TextureType::Color2D};
+        bool is_read{};
+        bool is_written{};
+    };
+
     boost::container::small_vector<VideoCommon::ImageViewInOut, 64> views;
     boost::container::small_vector<VideoCommon::SamplerId, 64> samplers;
+    std::vector<SkyrimResourceTrace> skyrim_resource_traces;
+    const bool trace_skyrim_resources =
+        Settings::values.maxwell_issue_tracking.GetValue() &&
+        key.unique_hashes[1] == 0xa71664c0a2643d30ULL &&
+        key.unique_hashes[5] == 0x331f0de4dc79b7baULL;
     views.reserve(num_image_elements);
     samplers.reserve(num_textures);
 
@@ -401,38 +423,81 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
             }
             return TexturePair(gpu_memory->Read<u32>(addr), via_header_index);
         }};
-        const auto add_image{[&](const auto& desc, bool blacklist) LAMBDA_FORCEINLINE {
+        const auto add_image{[&](const auto& desc, bool blacklist, const char* kind,
+                                  Shader::TextureType texture_type, bool is_read,
+                                  bool is_written, u32& binding_index) LAMBDA_FORCEINLINE {
             for (u32 index = 0; index < desc.count; ++index) {
                 const auto handle{read_handle(desc, index)};
+                const size_t view_index = views.size();
+                if (trace_skyrim_resources) {
+                    skyrim_resource_traces.push_back({
+                        .view_index = view_index,
+                        .stage = static_cast<u32>(stage),
+                        .kind = kind,
+                        .binding = binding_index,
+                        .element = index,
+                        .cbuf_index = desc.cbuf_index,
+                        .cbuf_offset = desc.cbuf_offset,
+                        .guest_handle = handle.first,
+                        .texture_type = texture_type,
+                        .is_read = is_read,
+                        .is_written = is_written,
+                    });
+                }
                 views.push_back({
                     .index = handle.first,
                     .blacklist = blacklist,
                     .id = {}
                 });
             }
+            ++binding_index;
         }};
+        u32 texture_buffer_binding{};
         if constexpr (Spec::has_texture_buffers) {
             for (const auto& desc : info.texture_buffer_descriptors) {
-                add_image(desc, false);
+                add_image(desc, false, "texture_buffer", Shader::TextureType::Buffer,
+                          true, false, texture_buffer_binding);
             }
         }
+        u32 image_buffer_binding{};
         if constexpr (Spec::has_image_buffers) {
             for (const auto& desc : info.image_buffer_descriptors) {
-                add_image(desc, false);
+                add_image(desc, false, "image_buffer", Shader::TextureType::Buffer,
+                          desc.is_read, desc.is_written, image_buffer_binding);
             }
         }
+        u32 texture_binding{};
         for (const auto& desc : info.texture_descriptors) {
             for (u32 index = 0; index < desc.count; ++index) {
                 const auto handle{read_handle(desc, index)};
+                const size_t view_index = views.size();
+                if (trace_skyrim_resources) {
+                    skyrim_resource_traces.push_back({
+                        .view_index = view_index,
+                        .stage = static_cast<u32>(stage),
+                        .kind = "sampled_texture",
+                        .binding = texture_binding,
+                        .element = index,
+                        .cbuf_index = desc.cbuf_index,
+                        .cbuf_offset = desc.cbuf_offset,
+                        .guest_handle = handle.first,
+                        .texture_type = desc.type,
+                        .is_read = true,
+                        .is_written = false,
+                    });
+                }
                 views.push_back({handle.first});
 
                 VideoCommon::SamplerId sampler{texture_cache.GetSamplerId(handle.second, false)};
                 samplers.push_back(sampler);
             }
+            ++texture_binding;
         }
+        u32 image_binding{};
         if constexpr (Spec::has_images) {
             for (const auto& desc : info.image_descriptors) {
-                add_image(desc, desc.is_written);
+                add_image(desc, desc.is_written, "storage_image", desc.type,
+                          desc.is_read, desc.is_written, image_binding);
             }
         }
 
@@ -456,6 +521,61 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     ASSERT(views.size() == num_image_elements);
     ASSERT(samplers.size() == num_textures);
     texture_cache.FillImageViews(std::span(views.data(), views.size()), false, Spec::has_images);
+
+    // Log only changes to resolved resources for the known Skyrim scene shader pair.
+    // This keeps the trace useful without emitting one line for every draw using
+    // an unchanged descriptor.
+    if (trace_skyrim_resources) {
+        static std::mutex resource_trace_mutex;
+        static std::unordered_map<std::string, std::string> last_resource_signatures;
+        const u64 scheduler_tick = scheduler.CurrentTick();
+        for (const SkyrimResourceTrace& trace : skyrim_resource_traces) {
+            const VideoCommon::ImageViewInOut& resolved = views[trace.view_index];
+            ImageView& image_view = texture_cache.GetImageView(resolved.id);
+            const uintptr_t vk_image =
+                reinterpret_cast<uintptr_t>(image_view.ImageHandle());
+            uintptr_t vk_image_view{};
+            if (trace.texture_type != Shader::TextureType::Buffer) {
+                vk_image_view =
+                    reinterpret_cast<uintptr_t>(image_view.Handle(trace.texture_type));
+            }
+
+            const auto& range = image_view.range;
+            const auto& extent = image_view.size;
+            const u32 pixel_format = static_cast<u32>(image_view.format);
+            const u32 view_type = static_cast<u32>(image_view.type);
+            const u32 view_flags = static_cast<u32>(image_view.flags);
+            const std::string trace_key = fmt::format(
+                "{}:{}:{}:{}", trace.stage, trace.kind, trace.binding, trace.element);
+            const std::string signature = fmt::format(
+                "{:#x}:{:#x}:{:#x}:{:#x}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+                trace.guest_handle, image_view.GpuAddr(), vk_image, vk_image_view,
+                image_view.BufferSize(), pixel_format, view_type, extent.width,
+                extent.height, extent.depth, range.base.level, range.extent.levels,
+                range.base.layer, range.extent.layers, image_view.invalidation_tick,
+                image_view.modification_tick);
+            bool changed{};
+            {
+                std::scoped_lock lock{resource_trace_mutex};
+                const auto [it, inserted] =
+                    last_resource_signatures.emplace(trace_key, signature);
+                changed = inserted || it->second != signature;
+                if (changed) {
+                    it->second = signature;
+                }
+            }
+            if (changed) {
+                GPU::Logging::GPULogger::GetInstance().LogSkyrimGraphicsResource(
+                    scheduler_tick, trace.stage, trace.kind, trace.binding, trace.element,
+                    trace.cbuf_index, trace.cbuf_offset, trace.guest_handle,
+                    image_view.GpuAddr(), vk_image, vk_image_view, image_view.BufferSize(),
+                    pixel_format, view_type, extent.width, extent.height, extent.depth,
+                    range.base.level, range.extent.levels, range.base.layer,
+                    range.extent.layers, view_flags, image_view.invalidation_tick,
+                    image_view.modification_tick, trace.is_read, trace.is_written);
+            }
+        }
+    }
 
     VideoCommon::ImageViewInOut* texture_buffer_it{views.data()};
     const auto bind_stage_info{[&](size_t stage) LAMBDA_FORCEINLINE {
