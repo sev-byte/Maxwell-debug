@@ -389,17 +389,26 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     const bool via_header_index{regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding};
     const auto config_stage{[&](size_t stage) LAMBDA_FORCEINLINE {
         const Shader::Info& info{stage_infos[stage]};
+        const auto& cbufs{maxwell3d->state.shader_stages[stage].const_buffers};
         buffer_cache.UnbindGraphicsStorageBuffers(stage);
         if constexpr (Spec::has_storage_buffers) {
             size_t ssbo_index{};
             for (const auto& desc : info.storage_buffers_descriptors) {
                 ASSERT(desc.count == 1);
+                if (trace_skyrim_resources) {
+                    const GPUVAddr descriptor_addr =
+                        cbufs[desc.cbuf_index].address + desc.cbuf_offset;
+                    GPU::Logging::GPULogger::GetInstance().LogSkyrimGraphicsResource(
+                        scheduler.CurrentTick(), static_cast<u32>(stage), "storage_buffer_source",
+                        static_cast<u32>(ssbo_index), 0, desc.cbuf_index, desc.cbuf_offset, 0,
+                        descriptor_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        !desc.is_written, desc.is_written);
+                }
                 buffer_cache.BindGraphicsStorageBuffer(stage, ssbo_index, desc.cbuf_index,
                                                        desc.cbuf_offset, desc.is_written);
                 ++ssbo_index;
             }
         }
-        const auto& cbufs{maxwell3d->state.shader_stages[stage].const_buffers};
         const auto read_handle{[&](const auto& desc, u32 index) {
             if (desc.cbuf_index == Shader::ATTRIBUTE_HANDLE_CBUF_INDEX) {
                 return TexturePair(attribute_handle, via_header_index);
@@ -555,7 +564,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
             const std::string trace_key = fmt::format(
                 "{}:{}:{}:{}", trace.stage, trace.kind, trace.binding, trace.element);
             const std::string signature = fmt::format(
-                "{:#x}:{:#x}:{:#x}:{:#x}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+                "{:#x}:{:#x}:{:#x}:{:#x}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
                 trace.guest_handle, image_view.GpuAddr(), vk_image, vk_image_view,
                 image_view.BufferSize(), pixel_format, view_type, descriptor_format, extent.width,
                 extent.height, extent.depth, range.base.level, range.extent.levels,
