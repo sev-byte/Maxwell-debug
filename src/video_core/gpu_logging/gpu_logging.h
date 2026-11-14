@@ -106,6 +106,14 @@ public:
     void LogSkyrimGpuComplete(u64 tick, const char* source);
     void LogSkyrimDraw(const std::string& draw_info, const std::array<u64, 6>& shader_hashes);
     void LogSkyrimRenderPass(const std::string& attachment_info);
+    void LogSkyrimGraphicsResource(u64 scheduler_tick, u32 stage, const char* kind,
+                                   u32 binding, u32 element, u32 cbuf_index, u32 cbuf_offset,
+                                   u32 guest_handle, u64 gpu_addr, uintptr_t vk_image,
+                                   uintptr_t vk_image_view, u32 buffer_size, u32 pixel_format,
+                                   u32 view_type, u32 width, u32 height, u32 depth,
+                                   s32 base_mip, s32 mip_count, s32 base_layer, s32 layer_count,
+                                   u32 view_flags, u64 invalidation_tick, u64 modification_tick,
+                                   bool is_read, bool is_written);
     void FlushSkyrimCaptureIfNeeded();
     void LogMemoryAllocation(uintptr_t memory, u64 size, u32 memory_flags);
     void LogMemoryDeallocation(uintptr_t memory);
