@@ -6,6 +6,7 @@ on:
     branches:
       - maxwell-issue-tracking
       - skyrim-light-data-capture
+      - skyrim-stable-30hz-cadence
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
