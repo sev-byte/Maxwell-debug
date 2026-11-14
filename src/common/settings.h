@@ -905,6 +905,9 @@ struct Values {
     // Experimental broad compute-write visibility probe; off by default.
     Setting<bool> maxwell_compute_barrier_probe{linkage, false, "maxwell_compute_barrier_probe",
                                                 Category::Debugging};
+    // Experimental cadence limiter for the identified Skyrim compute dispatch; off by default.
+    Setting<bool> maxwell_compute_cadence_30hz{linkage, false, "maxwell_compute_cadence_30hz",
+                                               Category::Debugging};
     Setting<GpuLogLevel> gpu_log_level{linkage, GpuLogLevel::Off, "gpu_log_level",
                                        Category::Debugging};
     Setting<bool> gpu_log_vulkan_calls{linkage, true, "gpu_log_vulkan_calls", Category::Debugging};
