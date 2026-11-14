@@ -84,3 +84,12 @@ Other selected effect NIFs (candle flame, small fire, torch fire, Dawnguard beam
 The current uploaded root path is labelled + update. Base-game plugin records are not yet confirmed in this archive. To connect static mesh assets to the actual dynamic scene lights, the next data needed is the appropriate base-game plugin records (light definitions and placed references), then to correlate their mesh paths, radii, intensities and flicker flags with the runtime resource/dispatch traces. Keep static-file results distinct from Maxwell runtime evidence.
 
 Do not infer the root cause from the NIFs alone: the candle material animation, placed light objects and Maxwell's GPU dispatch/resource behaviour are three separate layers that still need to be connected.
+
+
+### Authored emissive flicker curve found in an Imperial candle NIF
+
+A second parser pass resolved the BSLightingShaderPropertyFloatController in impcandle01.nif. It targets the candle's BSLightingShaderProperty and controls Emissive Multiple (controlled-variable value 11). The controller runs from 0 to 10 seconds at frequency 1, phase 0, targeting a warm-emissive shader whose initial multiplier is 0.87038594.
+
+Its NiFloatData contains 13 Quadratic keys. The emissive multiplier ranges from 0.435193 to 1.305579 and returns to 0.870386 at 10 seconds. The key times are 0, 0.5, 1.433, 2.267, 3.267, 4.167, 5.1, 5.933, 6.833, 7.767, 8.767, 9.6 and 10 seconds. Thus this mesh has a deterministic, authored 10-second glow envelope, not a random frame-to-frame pattern.
+
+This is an animation of the candle mesh's emissive material. It does not prove that the colocated dynamic point light has the same time curve or that it explains the user's selective light flicker. The chandelier and wall-sconce controller chains use manager-controlled blend interpolators and are being traced before comparing their animation periods.
