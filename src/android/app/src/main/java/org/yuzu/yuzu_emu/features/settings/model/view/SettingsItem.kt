@@ -1055,6 +1055,13 @@ abstract class SettingsItem(
                 )
             )
             put(
+                SwitchSetting(
+                    BooleanSetting.MAXWELL_COMPUTE_CADENCE_30HZ,
+                    titleId = R.string.maxwell_compute_cadence_30hz,
+                    descriptionId = R.string.maxwell_compute_cadence_30hz_description
+                )
+            )
+            put(
                 SingleChoiceSetting(
                     ByteSetting.GPU_LOG_LEVEL,
                     titleId = R.string.gpu_log_level,
