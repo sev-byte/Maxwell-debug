@@ -110,7 +110,7 @@ public:
                                    u32 binding, u32 element, u32 cbuf_index, u32 cbuf_offset,
                                    u32 guest_handle, u64 gpu_addr, uintptr_t vk_image,
                                    uintptr_t vk_image_view, u32 buffer_size, u32 pixel_format,
-                                   u32 view_type, u32 width, u32 height, u32 depth,
+                                   u32 view_type, u32 descriptor_format, u32 width, u32 height, u32 depth,
                                    s32 base_mip, s32 mip_count, s32 base_layer, s32 layer_count,
                                    u32 view_flags, u64 invalidation_tick, u64 modification_tick,
                                    bool is_read, bool is_written);
