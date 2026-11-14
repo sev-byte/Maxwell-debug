@@ -93,3 +93,21 @@ A second parser pass resolved the BSLightingShaderPropertyFloatController in imp
 Its NiFloatData contains 13 Quadratic keys. The emissive multiplier ranges from 0.435193 to 1.305579 and returns to 0.870386 at 10 seconds. The key times are 0, 0.5, 1.433, 2.267, 3.267, 4.167, 5.1, 5.933, 6.833, 7.767, 8.767, 9.6 and 10 seconds. Thus this mesh has a deterministic, authored 10-second glow envelope, not a random frame-to-frame pattern.
 
 This is an animation of the candle mesh's emissive material. It does not prove that the colocated dynamic point light has the same time curve or that it explains the user's selective light flicker. The chandelier and wall-sconce controller chains use manager-controlled blend interpolators and are being traced before comparing their animation periods.
+
+
+### Chandelier and wall-sconce emissive sequence tracks decoded
+
+The follow-up parser traced the manager-controlled NiBlendFloatInterpolator blocks through their NiControllerSequence controlled-block arrays to the actual NiFloatData keyframes. The chandelier and both wall-sconce variants each use an Idle sequence with:
+- cycle type 0 (loop);
+- frequency 1, phase 0, weight 1;
+- time range 0–3.3333335 seconds;
+- Quadratic interpolation;
+- controlled variable Emissive Multiple on BSLightingShaderProperty.
+
+The chandelier has two independent animated emissive candle surfaces:
+- ImpChandellierCandle01:7: 7 keys from 1.006098 to 2.012195.
+- ImpChandellierCandle01:8: 6 keys from 0.870386 to 1.305579.
+
+The first wall-sconce variant's candle surface uses the second curve above (the 6-key curve). The second variant uses the first curve (the 7-key curve). Thus the two wall-sconce variants and the two chandelier candle surfaces reuse two different deterministic emissive profiles, all looping every 3.333 seconds. This is a material-glow pattern, not a measured period for the dynamic point light.
+
+Together with the simple impcandle01 mesh's direct 10-second curve, we now have authored visual-glow timing for several Imperial candle assets. The current archive is update-labelled and its indexed content is executable plus mesh/shader archives; the base-game plugin records that define placed lights are still missing. Those are required to connect these material animations to the lights casting illumination in the scene.
