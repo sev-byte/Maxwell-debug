@@ -402,7 +402,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
                     GPU::Logging::GPULogger::GetInstance().LogSkyrimGraphicsResource(
                         scheduler.CurrentTick(), static_cast<u32>(stage), "storage_buffer_source",
                         static_cast<u32>(ssbo_index), 0, desc.cbuf_index, desc.cbuf_offset, 0,
-                        descriptor_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        descriptor_addr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         !desc.is_written, desc.is_written);
                 }
                 buffer_cache.BindGraphicsStorageBuffer(stage, ssbo_index, desc.cbuf_index,
