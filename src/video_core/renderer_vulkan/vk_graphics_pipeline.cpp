@@ -550,10 +550,16 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
             uintptr_t vk_image_view{};
             const u32 descriptor_format = static_cast<u32>(trace.image_format);
             if (trace.texture_type != Shader::TextureType::Buffer) {
-                const VkImageView bound_view =
+                VkImageView bound_view =
                     trace.kind == std::string_view{"storage_image"}
                         ? image_view.StorageView(trace.texture_type, trace.image_format)
                         : image_view.Handle(trace.texture_type);
+                if (trace.kind == std::string_view{"sampled_texture"} &&
+                    bound_view == VK_NULL_HANDLE) {
+                    bound_view = texture_cache
+                                     .GetImageView(VideoCommon::NULL_IMAGE_VIEW_ID)
+                                     .Handle(trace.texture_type);
+                }
                 vk_image_view = reinterpret_cast<uintptr_t>(bound_view);
             }
 
