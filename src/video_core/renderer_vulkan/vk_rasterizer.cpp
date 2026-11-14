@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <thread>
 
 #include <fmt/format.h>
 
@@ -720,13 +721,46 @@ void RasterizerVulkan::DispatchCompute() {
     if (!pipeline) {
         return;
     }
+
+    const u64 shader_hash = pipeline->ShaderHash();
+    const auto& qmd{kepler_compute->launch_description};
+    constexpr u64 SKYRIM_CADENCE_SHADER = 0x4577aed68dd75eccULL;
+    constexpr std::array<u32, 3> SKYRIM_CADENCE_GROUPS{320, 6, 1};
+    constexpr auto SKYRIM_CADENCE_INTERVAL = std::chrono::nanoseconds{33'333'333};
+
+    // Diagnostic-only pacing for the compute dispatch isolated in the Skyrim barrier captures.
+    // This delays early arrivals on the guest GPU command thread; it never drops or replays work.
+    if (Settings::values.maxwell_compute_cadence_30hz.GetValue() &&
+        shader_hash == SKYRIM_CADENCE_SHADER &&
+        !kepler_compute->GetIndirectComputeAddress() &&
+        qmd.grid_dim_x == SKYRIM_CADENCE_GROUPS[0] &&
+        qmd.grid_dim_y == SKYRIM_CADENCE_GROUPS[1] &&
+        qmd.grid_dim_z == SKYRIM_CADENCE_GROUPS[2]) {
+        u64 wait_us{};
+        {
+            std::unique_lock cadence_lock{compute_cadence_mutex};
+            const auto arrival = std::chrono::steady_clock::now();
+            const auto dispatch_slot = std::max(arrival, next_skyrim_compute_dispatch);
+            if (dispatch_slot > arrival) {
+                std::this_thread::sleep_until(dispatch_slot);
+            }
+            const auto actual_start = std::chrono::steady_clock::now();
+            wait_us = static_cast<u64>(
+                std::chrono::duration_cast<std::chrono::microseconds>(actual_start - arrival)
+                    .count());
+            next_skyrim_compute_dispatch = actual_start + SKYRIM_CADENCE_INTERVAL;
+        }
+        GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeCadence(
+            shader_hash, SKYRIM_CADENCE_GROUPS[0], SKYRIM_CADENCE_GROUPS[1],
+            SKYRIM_CADENCE_GROUPS[2], SKYRIM_CADENCE_INTERVAL.count(), wait_us);
+    }
+
     std::scoped_lock lock{texture_cache.mutex, buffer_cache.mutex};
     if (!pipeline->Configure(*kepler_compute, *gpu_memory, scheduler, buffer_cache,
                              texture_cache)) {
         return;
     }
 
-    const u64 shader_hash = pipeline->ShaderHash();
     const bool barrier_probe = Settings::values.maxwell_compute_barrier_probe.GetValue();
     static constexpr VkMemoryBarrier COMPUTE_WRITE_BARRIER{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
