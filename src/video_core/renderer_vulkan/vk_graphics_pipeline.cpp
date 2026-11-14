@@ -375,10 +375,15 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     boost::container::small_vector<VideoCommon::ImageViewInOut, 64> views;
     boost::container::small_vector<VideoCommon::SamplerId, 64> samplers;
     std::vector<SkyrimResourceTrace> skyrim_resource_traces;
-    const bool trace_skyrim_resources =
-        Settings::values.maxwell_issue_tracking.GetValue() &&
+    // The known scene draw was observed with two fragment variants across
+    // the stable and unstable captures. Keep both so the resource trace covers
+    // the stable 0x58484... variant as well as the earlier 0x331f... variant.
+    const bool is_skyrim_scene_shader_pair =
         key.unique_hashes[1] == 0xa71664c0a2643d30ULL &&
-        key.unique_hashes[5] == 0x331f0de4dc79b7baULL;
+        (key.unique_hashes[5] == 0x331f0de4dc79b7baULL ||
+         key.unique_hashes[5] == 0x58484bdeb060359cULL);
+    const bool trace_skyrim_resources =
+        Settings::values.maxwell_issue_tracking.GetValue() && is_skyrim_scene_shader_pair;
     views.reserve(num_image_elements);
     samplers.reserve(num_textures);
 
