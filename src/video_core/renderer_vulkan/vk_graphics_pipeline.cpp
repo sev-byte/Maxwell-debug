@@ -10,6 +10,7 @@
 #include <mutex>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 #include <boost/container/small_vector.hpp>
@@ -564,12 +565,12 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
             const std::string trace_key = fmt::format(
                 "{}:{}:{}:{}", trace.stage, trace.kind, trace.binding, trace.element);
             const std::string signature = fmt::format(
-                "{:#x}:{:#x}:{:#x}:{:#x}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+                "{:#x}:{:#x}:{:#x}:{:#x}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
                 trace.guest_handle, image_view.GpuAddr(), vk_image, vk_image_view,
                 image_view.BufferSize(), pixel_format, view_type, descriptor_format, extent.width,
                 extent.height, extent.depth, range.base.level, range.extent.levels,
                 range.base.layer, range.extent.layers, image_view.invalidation_tick,
-                image_view.modification_tick);
+                image_view.modification_tick, view_flags, trace.is_read, trace.is_written);
             bool changed{};
             {
                 std::scoped_lock lock{resource_trace_mutex};
