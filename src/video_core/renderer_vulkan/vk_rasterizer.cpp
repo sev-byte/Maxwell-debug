@@ -961,15 +961,15 @@ bool RasterizerVulkan::ShouldBypassCPUReadAreaCache(DAddr addr, u64 size) {
         return false;
     }
     std::scoped_lock lock{buffer_cache.mutex};
-    return buffer_cache.HasTargetShaderReadFlush(addr, size);
+    return buffer_cache.HasComputeShaderReadFlush(addr, size);
 }
 
 VideoCore::RasterizerDownloadArea RasterizerVulkan::GetFlushArea(DAddr addr, u64 size) {
-    // Give the targeted Skyrim compute-shader output priority over other cache areas.
+    // Give pending compute-shader SSBO writes priority over other cache areas.
     // Otherwise a texture-cache preflush result could short-circuit the buffer-cache override.
     {
         std::scoped_lock lock{buffer_cache.mutex};
-        if (buffer_cache.HasTargetShaderReadFlush(addr, size)) {
+        if (buffer_cache.HasComputeShaderReadFlush(addr, size)) {
             auto area = buffer_cache.GetFlushArea(addr, size);
             if (area) {
                 return *area;
