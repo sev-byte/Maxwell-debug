@@ -258,7 +258,7 @@ public:
 
     void BindHostStageBuffers(size_t stage);
 
-    void BindHostComputeBuffers(bool force_target_shader_flush);
+    void BindHostComputeBuffers(bool force_target_shader_flush = false);
 
     void SetUniformBuffersState(const std::array<u32, NUM_STAGES>& mask,
                                 const UniformBufferSizes* sizes);
