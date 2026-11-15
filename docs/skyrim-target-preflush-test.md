@@ -166,3 +166,27 @@ The source keeps these paths separate:
 The next capture should first **identify and resolve writable storage-image descriptors**, rather than immediately force a global barrier. For each compute or graphics shader, record shader hash/stage, whether the descriptor is written, descriptor source, resolved image-view identity, image type, dimensions/depth, format, subresource range, and the associated GPU/CPU memory range where available. This will establish whether a 3D/volume-like resource is actually written in the flickering scene.
 
 The earlier shader hash `0x8c0d043b68e7a6d1` was only seen in a shader-compilation record in the earlier capture; it was not dispatched there. Do not label it a volumetric-lighting shader until a runtime dispatch and its writable image binding are observed.
+
+## Ambient and volumetric image-cache preflush tests — next build
+
+The broad compute-SSBO test was visually unchanged in the user's test after enabling it in Skyrim's per-game Debug settings, clearing the shader cache, and trying another graphics driver. The next experiment keeps that SSBO switch separate and adds two independent image-cache switches:
+
+- `maxwell_disable_ambient_preflush`: broad candidate selector for GPU-written, non-3D colour images.
+- `maxwell_disable_volumetric_preflush`: candidate selector for GPU-written true 3D colour images.
+
+These are intentionally resource-class probes, not claims that the game labels every non-3D image as ambient or every 3D image as volumetric. The volumetric selector does not yet include effects represented as 2D textures, 2D arrays, or screen-space slices. A resource trace is needed to confirm the actual formats and shader passes used by Skyrim.
+
+The image-cache experiment differs from the compute-SSBO test:
+- It acts in `TextureCache::GetFlushArea`, where image preflushability is represented by `ImageInfo::forced_flushed` and `ImageViewFlagBits::PreemtiveDownload`.
+- For selected pending GPU-written images, it forces `RasterizerDownloadArea::preemtive=false`, clears the delayed `PreemtiveDownload` view flag, and bypasses the per-core CPU-read-area cache. This makes CPU reads take the synchronous texture-cache download path even after an earlier read made the image appear preflushable.
+- Writable compute and graphics storage-image descriptors are now explicitly marked as GPU-modified when their selected test switch is active. Existing render-target writes were already marked through normal render-target preparation.
+- Both new switches are per-game and off by default. They are independent of the existing compute-SSBO switch.
+
+### Suggested A/B order
+
+1. Leave the SSBO switch off. Enable only **Disable ambient-image preflushing** and retest the exact flickering scene.
+2. Turn ambient off, enable only **Disable volumetric-image preflushing**, and repeat.
+3. Only after the independent tests, enable both image switches together.
+4. Keep the same driver, save, camera, lighting positions, and cache state for each comparison. Record whether flickering changes, reduces, or remains identical.
+
+A positive result would show that a selected image-cache readback path contributes to the symptom; it would not by itself prove the specific shader is ambient or volumetric. A negative result would still need to be checked against the runtime resource trace, especially if the relevant effect uses 2D-array or buffer-backed storage instead of a true 3D image.

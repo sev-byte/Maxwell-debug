@@ -960,8 +960,16 @@ bool RasterizerVulkan::ShouldBypassCPUReadAreaCache(DAddr addr, u64 size) {
     if (addr == 0 || size == 0) {
         return false;
     }
-    std::scoped_lock lock{buffer_cache.mutex};
-    return buffer_cache.HasComputeShaderReadFlush(addr, size);
+    {
+        std::scoped_lock lock{buffer_cache.mutex};
+        if (buffer_cache.HasComputeShaderReadFlush(addr, size)) {
+            return true;
+        }
+    }
+    {
+        std::scoped_lock lock{texture_cache.mutex};
+        return texture_cache.ShouldBypassCPUReadAreaCache(addr, size);
+    }
 }
 
 VideoCore::RasterizerDownloadArea RasterizerVulkan::GetFlushArea(DAddr addr, u64 size) {

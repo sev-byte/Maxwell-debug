@@ -661,6 +661,10 @@
     <string name="maxwell_light_preflush_header">Lighting experiment</string>
     <string name="maxwell_disable_light_preflush">Disable light preflushing</string>
     <string name="maxwell_disable_light_preflush_description">Wide experimental A/B test: bypass the cached preflush shortcut for every writable compute-shader storage buffer in this game, not just the identified Skyrim shader. This can also affect non-lighting compute passes and may reduce performance. Per-game; off by default.</string>
+    <string name="maxwell_disable_ambient_preflush">Disable ambient-image preflushing</string>
+    <string name="maxwell_disable_ambient_preflush_description">Experimental image-cache test: bypass the cached preflush shortcut for GPU-written non-3D colour images, including writable storage images and render targets. This is a broad ambient-lighting candidate, not a semantic shader filter, and can affect unrelated 2D colour images. Per-game; off by default.</string>
+    <string name="maxwell_disable_volumetric_preflush">Disable volumetric-image preflushing</string>
+    <string name="maxwell_disable_volumetric_preflush_description">Experimental image-cache test: bypass the cached preflush shortcut for GPU-written true 3D colour images, including writable storage images. Volumetric effects stored as 2D images or slices are not covered by this selector. Per-game; off by default.</string>
 
     <!-- GPU Logging strings -->
     <string name="gpu_logging_header">Maxwell Issue Tracking</string>

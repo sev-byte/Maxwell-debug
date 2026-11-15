@@ -1039,12 +1039,26 @@ abstract class SettingsItem(
                 )
             )
 
-            // Broad compute SSBO preflush experiment (per-game).
+            // Broad compute SSBO and texture-image preflush experiments (per-game).
             put(
                 SwitchSetting(
                     BooleanSetting.MAXWELL_DISABLE_LIGHT_PREFLUSH,
                     titleId = R.string.maxwell_disable_light_preflush,
                     descriptionId = R.string.maxwell_disable_light_preflush_description
+                )
+            )
+            put(
+                SwitchSetting(
+                    BooleanSetting.MAXWELL_DISABLE_AMBIENT_PREFLUSH,
+                    titleId = R.string.maxwell_disable_ambient_preflush,
+                    descriptionId = R.string.maxwell_disable_ambient_preflush_description
+                )
+            )
+            put(
+                SwitchSetting(
+                    BooleanSetting.MAXWELL_DISABLE_VOLUMETRIC_PREFLUSH,
+                    titleId = R.string.maxwell_disable_volumetric_preflush,
+                    descriptionId = R.string.maxwell_disable_volumetric_preflush_description
                 )
             )
 

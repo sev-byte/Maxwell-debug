@@ -909,6 +909,12 @@ struct Values {
     // Switchable so the test can be enabled for Skyrim only; off by default.
     SwitchableSetting<bool> maxwell_disable_light_preflush{
         linkage, false, "maxwell_disable_light_preflush", Category::Debugging};
+    // Broad image-cache A/B tests. Ambient candidates are non-3D colour images;
+    // volumetric candidates are true 3D colour images. Both are per-game and off by default.
+    SwitchableSetting<bool> maxwell_disable_ambient_preflush{
+        linkage, false, "maxwell_disable_ambient_preflush", Category::Debugging};
+    SwitchableSetting<bool> maxwell_disable_volumetric_preflush{
+        linkage, false, "maxwell_disable_volumetric_preflush", Category::Debugging};
     // Experimental cadence limiter for the identified Skyrim compute dispatch; off by default.
     Setting<bool> maxwell_compute_cadence_30hz{linkage, false, "maxwell_compute_cadence_30hz",
                                                Category::Debugging};

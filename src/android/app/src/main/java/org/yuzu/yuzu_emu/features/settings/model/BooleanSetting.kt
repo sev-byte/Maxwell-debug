@@ -87,6 +87,8 @@ enum class BooleanSetting(override val key: String) : AbstractBooleanSetting {
     // Maxwell Issue Tracking
     MAXWELL_ISSUE_TRACKING("maxwell_issue_tracking"),
     MAXWELL_DISABLE_LIGHT_PREFLUSH("maxwell_disable_light_preflush"),
+    MAXWELL_DISABLE_AMBIENT_PREFLUSH("maxwell_disable_ambient_preflush"),
+    MAXWELL_DISABLE_VOLUMETRIC_PREFLUSH("maxwell_disable_volumetric_preflush"),
     MAXWELL_COMPUTE_BARRIER_PROBE("maxwell_compute_barrier_probe"),
     MAXWELL_COMPUTE_CADENCE_30HZ("maxwell_compute_cadence_30hz"),
     GPU_LOG_VULKAN_CALLS("gpu_log_vulkan_calls"),

@@ -1548,6 +1548,8 @@ class SettingsFragmentPresenter(
             if (settingsViewModel.game != null) {
                 add(HeaderSetting(R.string.maxwell_light_preflush_header))
                 add(BooleanSetting.MAXWELL_DISABLE_LIGHT_PREFLUSH.key)
+                add(BooleanSetting.MAXWELL_DISABLE_AMBIENT_PREFLUSH.key)
+                add(BooleanSetting.MAXWELL_DISABLE_VOLUMETRIC_PREFLUSH.key)
             }
 
             if (!NativeConfig.isPerGameConfigLoaded()) {

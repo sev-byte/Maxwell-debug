@@ -349,6 +349,21 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     const bool bind_descriptor_buffer{
         uses_descriptor_buffer && scheduler.UpdateDescriptorBufferChunk(descriptor_buffer_chunk)};
 
+    // The image cache previously only learned about GPU writes through render-target
+    // preparation. Track writable compute storage images as well, but only for the
+    // selected ambient/volumetric A/B class.
+    size_t storage_image_view_index =
+        Shader::NumDescriptors(info.texture_buffer_descriptors) +
+        Shader::NumDescriptors(info.image_buffer_descriptors) +
+        Shader::NumDescriptors(info.texture_descriptors);
+    for (const auto& desc : info.image_descriptors) {
+        for (u32 element = 0; element < desc.count; ++element, ++storage_image_view_index) {
+            if (desc.is_written) {
+                texture_cache.MarkStorageImageViewWritten(views[storage_image_view_index].id);
+            }
+        }
+    }
+
     const bool is_rescaling = !info.texture_descriptors.empty() || !info.image_descriptors.empty();
     scheduler.Record([this, descriptor_data, is_rescaling, descriptor_buffer_offset,
                       descriptor_buffer_chunk, bind_descriptor_buffer,

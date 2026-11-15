@@ -216,6 +216,57 @@ void TextureCache<P>::MarkModification(ImageId id) noexcept {
 }
 
 template <class P>
+bool TextureCache<P>::MarkStorageImageViewWritten(ImageViewId image_view_id) {
+    if (image_view_id == NULL_IMAGE_VIEW_ID) {
+        return false;
+    }
+    const ImageViewBase& image_view = slot_image_views[image_view_id];
+    if (image_view.IsBuffer()) {
+        return false;
+    }
+
+    ImageBase& image = slot_images[image_view.image_id];
+    if (image.info.type == ImageType::Buffer ||
+        GetFormatType(image.info.format) != SurfaceType::ColorTexture) {
+        return false;
+    }
+
+    const bool selected = image.info.type == ImageType::e3D
+                              ? Settings::values.maxwell_disable_volumetric_preflush.GetValue()
+                              : Settings::values.maxwell_disable_ambient_preflush.GetValue();
+    if (!selected) {
+        return false;
+    }
+
+    // Match render-target handling: refresh CPU-side changes before treating the
+    // storage image as a fresh GPU write, then make it visible to CPU-read flush logic.
+    PrepareImage(image_view.image_id, true, false);
+    return true;
+}
+
+template <class P>
+bool TextureCache<P>::ShouldBypassCPUReadAreaCache(DAddr cpu_addr, size_t size) {
+    bool should_bypass = false;
+    ForEachImageInRegion(cpu_addr, size, [&](ImageId, ImageBase& image) {
+        if (False(image.flags & ImageFlagBits::GpuModified) ||
+            image.info.type == ImageType::Buffer ||
+            GetFormatType(image.info.format) != SurfaceType::ColorTexture) {
+            return false;
+        }
+
+        const bool selected = image.info.type == ImageType::e3D
+                                  ? Settings::values.maxwell_disable_volumetric_preflush.GetValue()
+                                  : Settings::values.maxwell_disable_ambient_preflush.GetValue();
+        if (selected) {
+            should_bypass = true;
+            return true;
+        }
+        return false;
+    });
+    return should_bypass;
+}
+
+template <class P>
 void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compute, bool blacklist) {
     bool has_blacklisted = false;
     do {
@@ -653,11 +704,28 @@ std::optional<VideoCore::RasterizerDownloadArea> TextureCache<P>::GetFlushArea(D
         }
         area->start_address = (std::min)(area->start_address, image.cpu_addr);
         area->end_address = (std::max)(area->end_address, image.cpu_addr_end);
+        const bool disable_preflush =
+            image.info.type != ImageType::Buffer &&
+            GetFormatType(image.info.format) == SurfaceType::ColorTexture &&
+            (image.info.type == ImageType::e3D
+                 ? Settings::values.maxwell_disable_volumetric_preflush.GetValue()
+                 : Settings::values.maxwell_disable_ambient_preflush.GetValue());
         for (auto image_view_id : image.image_view_ids) {
             auto& image_view = slot_image_views[image_view_id];
-            image_view.flags |= ImageViewFlagBits::PreemtiveDownload;
+            if (disable_preflush) {
+                // Do not queue the later render-target pre-download for this image.
+                image_view.flags &= ~ImageViewFlagBits::PreemtiveDownload;
+            } else {
+                image_view.flags |= ImageViewFlagBits::PreemtiveDownload;
+            }
         }
-        area->preemtive &= image.info.forced_flushed;
+        if (disable_preflush) {
+            // Force the synchronous download path even after forced_flushed was set by
+            // an earlier read. This is the image-cache equivalent of the SSBO bypass.
+            area->preemtive = false;
+        } else {
+            area->preemtive &= image.info.forced_flushed;
+        }
         image.info.forced_flushed = true;
     });
     return area;

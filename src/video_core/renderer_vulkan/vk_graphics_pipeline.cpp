@@ -375,6 +375,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     boost::container::small_vector<VideoCommon::ImageViewInOut, 64> views;
     boost::container::small_vector<VideoCommon::SamplerId, 64> samplers;
     std::vector<SkyrimResourceTrace> skyrim_resource_traces;
+    std::vector<size_t> writable_storage_image_views;
     // The known scene draw was observed with two fragment variants across
     // the stable and unstable captures. Keep both so the resource trace covers
     // the stable 0x58484... variant as well as the earlier 0x331f... variant.
@@ -514,8 +515,14 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
         u32 image_binding{};
         if constexpr (Spec::has_images) {
             for (const auto& desc : info.image_descriptors) {
+                const size_t first_view = views.size();
                 add_image(desc, desc.is_written, "storage_image", desc.type,
                           desc.format, desc.is_read, desc.is_written, image_binding);
+                if (desc.is_written) {
+                    for (u32 element = 0; element < desc.count; ++element) {
+                        writable_storage_image_views.push_back(first_view + element);
+                    }
+                }
             }
         }
 
@@ -712,7 +719,13 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     if (IsBuilt() && !pipeline) {
         return false;
     }
-    return ConfigureDraw(rescaling, render_area);
+    const bool configured = ConfigureDraw(rescaling, render_area);
+    if (configured) {
+        for (const size_t view_index : writable_storage_image_views) {
+            texture_cache.MarkStorageImageViewWritten(views[view_index].id);
+        }
+    }
+    return configured;
 }
 
 bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
