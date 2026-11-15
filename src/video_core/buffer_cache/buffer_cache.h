@@ -7,6 +7,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstring>
 #include <memory>
 #include <numeric>
 
@@ -933,6 +934,35 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
     const Binding& binding = channel_state->uniform_buffers[stage][index];
     const DAddr device_addr = binding.device_addr;
     const u32 size = (std::min)(binding.size, (*channel_state->uniform_buffer_sizes)[stage][index]);
+
+    // Restrict the experiment to the seven chandelier-only VB0 allocations observed in the
+    // 15 Nov 2026 capture. The address match keeps the wall-sconce control scene untouched.
+    static constexpr std::array<GPUVAddr, 7> chandelier_vertex_buffers{
+        0x52e323900ULL, 0x52e14cc00ULL, 0x52e14a600ULL, 0x52ef57000ULL,
+        0x52ef56200ULL, 0x52f8aae00ULL, 0x52f8f3e00ULL,
+    };
+    const GPUVAddr vertex_buffer_0 =
+        maxwell3d ? maxwell3d->regs.vertex_streams[0].Address() : GPUVAddr{};
+    const bool is_chandelier_draw =
+        chandelier_test_shader_active &&
+        std::find(chandelier_vertex_buffers.begin(), chandelier_vertex_buffers.end(),
+                  vertex_buffer_0) != chandelier_vertex_buffers.end();
+
+    const bool disable_animation_a =
+        is_chandelier_draw && stage == 4 && index == 15 && size >= 768 &&
+        Settings::GetDebugKnobAt(0);
+    const bool disable_animation_b =
+        is_chandelier_draw && stage == 4 && index == 15 && size >= 768 &&
+        Settings::GetDebugKnobAt(1);
+    const u32 chandelier_light_cap =
+        is_chandelier_draw && stage == 4 && index == 5 && size >= 512
+            ? (Settings::GetDebugKnobAt(2) ? 4U
+               : Settings::GetDebugKnobAt(3) ? 5U
+                                             : 0U)
+            : 0U;
+    const bool apply_chandelier_override =
+        disable_animation_a || disable_animation_b || chandelier_light_cap != 0;
+
     Buffer& buffer = slot_buffers[binding.buffer_id];
     TouchBuffer(buffer, binding.buffer_id);
     const bool has_host_buffer = binding.buffer_id != NULL_BUFFER_ID;
@@ -948,7 +978,8 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
             return alignment > 1 && (offset % alignment) != 0;
         }
     }();
-    const bool use_fast_buffer = needs_alignment_stream
+    const bool use_fast_buffer = (!IS_OPENGL && apply_chandelier_override)
+        || needs_alignment_stream
         || (has_host_buffer && size <= channel_state->uniform_buffer_skip_cache_size
             && !memory_tracker.IsRegionGpuModified(device_addr, size));
     if (use_fast_buffer) {
@@ -974,6 +1005,31 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
         // Stream buffer path to avoid stalling on non-Nvidia drivers or Vulkan
         const std::span<u8> span = runtime.BindMappedUniformBuffer(stage, binding_index, size);
         device_memory.ReadBlockUnsafe(device_addr, span.data(), size);
+
+        if (apply_chandelier_override) {
+            if (disable_animation_a) {
+                constexpr size_t offset = 46 * 16;
+                auto [it, inserted] = chandelier_animation_a_baselines.try_emplace(device_addr);
+                if (inserted) {
+                    std::memcpy(it->second.data(), span.data() + offset, it->second.size());
+                }
+                std::memcpy(span.data() + offset, it->second.data(), it->second.size());
+            }
+            if (disable_animation_b) {
+                constexpr size_t offset = 47 * 16;
+                auto [it, inserted] = chandelier_animation_b_baselines.try_emplace(device_addr);
+                if (inserted) {
+                    std::memcpy(it->second.data(), span.data() + offset, it->second.size());
+                }
+                std::memcpy(span.data() + offset, it->second.data(), it->second.size());
+            }
+            if (chandelier_light_cap != 0) {
+                // Experimental assumption: fragment CB5 is an eight-entry array of 64-byte
+                // light records. Keep the first N and zero the remaining records.
+                const size_t first_removed = chandelier_light_cap * 64;
+                std::fill(span.begin() + first_removed, span.begin() + 512, u8{0});
+            }
+        }
         return;
     }
     // Classic cached path
