@@ -95,6 +95,11 @@ public:
         return fragment_has_color0_output;
     }
 
+    [[nodiscard]] bool IsChandelierLightShader() const noexcept {
+        return key.unique_hashes[1] == 0x23b2024b1d37cbf9ULL &&
+               key.unique_hashes[5] == 0xd51dd8e22a73bdd4ULL;
+    }
+
     bool UsesExtendedDynamicState() const noexcept {
         return key.state.extended_dynamic_state != 0;
     }
