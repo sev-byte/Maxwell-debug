@@ -1544,8 +1544,11 @@ class SettingsFragmentPresenter(
             add(UShortSetting.DEBUG_KNOBS.key)
             add(StringSetting.PROGRAM_ARGS.key)
 
-            add(HeaderSetting(R.string.maxwell_light_preflush_header))
-            add(BooleanSetting.MAXWELL_DISABLE_LIGHT_PREFLUSH.key)
+            // This is a per-game rendering experiment; keep it out of global Debug settings.
+            if (settingsViewModel.game != null) {
+                add(HeaderSetting(R.string.maxwell_light_preflush_header))
+                add(BooleanSetting.MAXWELL_DISABLE_LIGHT_PREFLUSH.key)
+            }
 
             if (!NativeConfig.isPerGameConfigLoaded()) {
                 add(HeaderSetting(R.string.gpu_logging_header))
