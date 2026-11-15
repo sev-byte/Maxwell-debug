@@ -160,8 +160,13 @@ def make_report(path):
     out += ["", "## Interpretation", conclusion, "",
             "The user-reported visual outcome for this capture was no visible change. "
             "The log establishes whether the instrumented path ran; it does not alone prove the visual cause.", ""]
-    for key, label in [("shader_match", "Shader match samples"), ("ssbo_write", "Target SSBO write samples"),
-                       ("bypass", "Bypass samples")]:
+    for key, label in [
+        ("shader_match", "Shader match samples"),
+        ("ssbo_write", "Target SSBO write samples"),
+        ("bypass", "Bypass samples"),
+        ("target_hash", "Raw target-hash line samples"),
+        ("volumetric_hash", "Raw secondary compute-hash line samples"),
+    ]:
         out.append("## " + label)
         entries = samples.get(key, [])
         if not entries: out.append("- No matching lines found.")
