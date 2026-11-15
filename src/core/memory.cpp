@@ -690,7 +690,9 @@ struct Memory::Impl {
             const DAddr end_address = address + size;
             if (current_area.start_address <= address && end_address <= current_area.end_address)
                 [[likely]] {
-                return;
+                if (!system.GPU().ShouldBypassCPUReadAreaCache(address, size)) {
+                    return;
+                }
             }
             current_area = system.GPU().OnCPURead(address, size);
         });
