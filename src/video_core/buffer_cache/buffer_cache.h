@@ -26,6 +26,7 @@ BufferCache<P>::BufferCache(Tegra::MaxwellDeviceMemoryManager& device_memory_, R
     // Ensure the first slot is used for the null buffer
     void(slot_buffers.insert(runtime, NullBufferParams{}));
     gpu_modified_ranges.Clear();
+    target_shader_write_ranges.Clear();
     inline_buffer_id = NULL_BUFFER_ID;
 #ifdef YUZU_LEGACY
     immediately_free = (Settings::values.vram_usage_mode.GetValue() == Settings::VramUsageMode::Aggressive);
@@ -191,6 +192,7 @@ template <class P>
 void BufferCache<P>::ClearDownload(DAddr device_addr, u64 size) {
     async_downloads.DeleteAll(device_addr, size);
     uncommitted_gpu_modified_ranges.Subtract(device_addr, size);
+    target_shader_write_ranges.Subtract(device_addr, size);
     for (auto& interval_set : committed_gpu_modified_ranges) {
         interval_set.Subtract(device_addr, size);
     }
@@ -386,9 +388,9 @@ void BufferCache<P>::BindHostStageBuffers(size_t stage) {
 }
 
 template <class P>
-void BufferCache<P>::BindHostComputeBuffers() {
+void BufferCache<P>::BindHostComputeBuffers(bool force_target_shader_flush) {
     BindHostComputeUniformBuffers();
-    BindHostComputeStorageBuffers();
+    BindHostComputeStorageBuffers(force_target_shader_flush);
     BindHostComputeTextureBuffers();
     if (any_buffer_uploaded) {
         runtime.PostCopyBarrier();
@@ -714,6 +716,14 @@ bool BufferCache<P>::IsRegionGpuModified(DAddr addr, size_t size) {
     bool is_dirty = false;
     gpu_modified_ranges.ForEachInRange(addr, size, [&](DAddr, DAddr) { is_dirty = true; });
     return is_dirty;
+}
+
+template <class P>
+bool BufferCache<P>::HasTargetShaderReadFlush(DAddr addr, size_t size) {
+    bool pending = false;
+    target_shader_write_ranges.ForEachInRange(addr, size,
+                                               [&](DAddr, DAddr) { pending = true; });
+    return pending;
 }
 
 template <class P>
@@ -1046,7 +1056,7 @@ void BufferCache<P>::ResolveMultiRangeStorage(Binding& binding, bool is_written,
 
 template <class P>
 bool BufferCache<P>::BindMultiRangeStorage(const Binding& binding, bool is_written,
-                                           std::span<const MultiRangeSegment> pool) {
+                                           std::span<const MultiRangeSegment> pool, bool force_target_shader_flush) {
     if constexpr (requires { runtime.BindMultiRangeStorageBuffer(u64{}, bool{}); }) {
         if (binding.segment_count < 2) {
             return false;
@@ -1066,7 +1076,8 @@ bool BufferCache<P>::BindMultiRangeStorage(const Binding& binding, bool is_writt
             const u32 offset = buffer.Offset(segment.device_addr);
             buffer.MarkUsage(offset, segment.size);
             if (is_written) {
-                MarkWrittenBuffer(segment.buffer_id, segment.device_addr, segment.size);
+                MarkWrittenBuffer(segment.buffer_id, segment.device_addr, segment.size, false,
+                                  force_target_shader_flush);
             }
             runtime.PushMultiRangeSource(buffer, offset, segment.size);
         }
@@ -1216,13 +1227,13 @@ void BufferCache<P>::BindHostComputeUniformBuffers() {
 }
 
 template <class P>
-void BufferCache<P>::BindHostComputeStorageBuffers() {
+void BufferCache<P>::BindHostComputeStorageBuffers(bool force_target_shader_flush) {
     u32 binding_index = 0;
     ForEachEnabledBit(channel_state->enabled_compute_storage_buffers, [&](u32 index) {
         const Binding& binding = channel_state->compute_storage_buffers[index];
         const bool is_written =
             ((channel_state->written_compute_storage_buffers >> index) & 1) != 0;
-        if (BindMultiRangeStorage(binding, is_written, compute_segments)) {
+        if (BindMultiRangeStorage(binding, is_written, compute_segments, force_target_shader_flush)) {
             return;
         }
         Buffer& buffer = slot_buffers[binding.buffer_id];
@@ -1234,7 +1245,8 @@ void BufferCache<P>::BindHostComputeStorageBuffers() {
         buffer.MarkUsage(offset, size);
 
         if (is_written) {
-            MarkWrittenBuffer(binding.buffer_id, binding.device_addr, size, true);
+            MarkWrittenBuffer(binding.buffer_id, binding.device_addr, size, true,
+                              force_target_shader_flush);
         }
 
         if constexpr (NEEDS_BIND_STORAGE_INDEX) {
@@ -1520,12 +1532,18 @@ void BufferCache<P>::UpdateComputeTextureBuffers() {
 }
 
 template <class P>
-void BufferCache<P>::MarkWrittenBuffer(BufferId buffer_id, DAddr device_addr, u32 size, bool needs_sync) {
+void BufferCache<P>::MarkWrittenBuffer(BufferId buffer_id, DAddr device_addr, u32 size,
+                                        bool needs_sync, bool force_target_shader_flush) {
     if constexpr (!IS_OPENGL) {
         if (needs_sync) {
             Buffer& buffer = slot_buffers[buffer_id];
             buffer.setWriteTick(runtime.CurrentTick());
         }
+    }
+    if (force_target_shader_flush) {
+        // Revoke any previous CPU-read preflush promise for this shader's output.
+        memory_tracker.UnmarkRegionAsPreflushable(device_addr, size);
+        target_shader_write_ranges.Add(device_addr, size);
     }
     memory_tracker.MarkRegionAsGpuModified(device_addr, size);
     gpu_modified_ranges.Add(device_addr, size);
