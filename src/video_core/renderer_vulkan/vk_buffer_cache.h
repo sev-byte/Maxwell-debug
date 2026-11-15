@@ -211,7 +211,7 @@ public:
     }
 
     void BindUniformBuffer(const Buffer& buffer, u32 offset, u32 size) {
-        if (Settings::values.maxwell_issue_tracking.GetValue()) {
+        if (GPU::Logging::IsActive()) {
             GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
                 "uniform", static_cast<u64>(buffer.CpuAddr()),
                 reinterpret_cast<uintptr_t>(buffer.Handle()), buffer.DeviceAddress(),
@@ -221,7 +221,7 @@ public:
     }
 
     void BindStorageBuffer(const Buffer& buffer, u32 offset, u32 size, bool is_written) {
-        if (Settings::values.maxwell_issue_tracking.GetValue()) {
+        if (GPU::Logging::IsActive()) {
             GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
                 "storage", static_cast<u64>(buffer.CpuAddr()),
                 reinterpret_cast<uintptr_t>(buffer.Handle()), buffer.DeviceAddress(),

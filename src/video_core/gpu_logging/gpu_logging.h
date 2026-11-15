@@ -95,13 +95,9 @@ public:
     void LogSkyrimComputeResource(u64 shader_hash, const char* kind, u32 binding, u32 cbuf_index,
                                   u32 cbuf_offset, u32 count, bool is_written);
     void LogSkyrimComputeDispatch(u64 shader_hash, u32 group_x, u32 group_y, u32 group_z);
-    void LogSkyrimComputeCadence(u64 shader_hash, u32 group_x, u32 group_y, u32 group_z,
-                                 u64 target_interval_ns, u64 wait_us);
     void LogSkyrimBufferAccess(const char* kind, u64 buffer_cpu_addr, uintptr_t vk_buffer,
                                u64 device_address, u64 offset, u64 size, bool is_written,
                                u64 scheduler_tick);
-    void LogSkyrimComputeBarrierProbe(u64 shader_hash, const char* path, u32 group_x,
-                                      u32 group_y, u32 group_z, bool barrier_recorded);
     void LogSkyrimQueueSubmit(u64 tick, int result);
     void LogSkyrimGpuComplete(u64 tick, const char* source);
     void LogSkyrimDraw(const std::string& draw_info, const std::array<u64, 6>& shader_hashes);

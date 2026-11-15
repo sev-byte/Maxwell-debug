@@ -330,7 +330,7 @@ void DumpSpirvShader(u64 shader_hash, std::span<const u32> spirv_code) {
 void GPULogger::LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address, u32 size,
                                         std::span<const u8> data, bool read_ok,
                                         const std::array<u64, 6>& shader_hashes) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue() ||
+    if (!GPU::Logging::IsActive() ||
         (index != 1 && index != 3 && index != 4 && index != 5 && index != 15)) {
         return;
     }
@@ -359,7 +359,7 @@ void GPULogger::LogSkyrimConstantBuffer(size_t stage, u32 index, u64 gpu_address
 void GPULogger::LogSkyrimComputeConstantBuffer(u64 shader_hash, u32 index,
                                                u64 gpu_address, u32 size,
                                                std::span<const u8> data, bool read_ok) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (!GPU::Logging::IsActive()) {
         return;
     }
     const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -385,7 +385,7 @@ void GPULogger::LogSkyrimComputeConstantBuffer(u64 shader_hash, u32 index,
 void GPULogger::LogSkyrimComputeResource(u64 shader_hash, const char* kind, u32 binding,
                                          u32 cbuf_index, u32 cbuf_offset, u32 count,
                                          bool is_written) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (!GPU::Logging::IsActive()) {
         return;
     }
     const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -402,7 +402,7 @@ void GPULogger::LogSkyrimComputeResource(u64 shader_hash, const char* kind, u32 
 
 void GPULogger::LogSkyrimComputeDispatch(u64 shader_hash, u32 group_x, u32 group_y,
                                          u32 group_z) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (!GPU::Logging::IsActive()) {
         return;
     }
     const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -416,7 +416,7 @@ void GPULogger::LogSkyrimComputeDispatch(u64 shader_hash, u32 group_x, u32 group
 }
 
 void GPULogger::LogSkyrimRenderPass(const std::string& attachment_info) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (!GPU::Logging::IsActive()) {
         return;
     }
     const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -435,7 +435,7 @@ void GPULogger::LogSkyrimGraphicsResource(
     u32 view_type, u32 descriptor_format, u32 width, u32 height, u32 depth, s32 base_mip, s32 mip_count,
     s32 base_layer, s32 layer_count, u32 view_flags, u64 invalidation_tick,
     u64 modification_tick, bool is_read, bool is_written) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (!GPU::Logging::IsActive()) {
         return;
     }
     const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -457,7 +457,7 @@ void GPULogger::LogSkyrimGraphicsResource(
 }
 
 void GPULogger::LogSkyrimDraw(const std::string& draw_info, const std::array<u64, 6>& shader_hashes) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (!GPU::Logging::IsActive()) {
         return;
     }
     const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -474,7 +474,7 @@ void GPULogger::LogSkyrimDraw(const std::string& draw_info, const std::array<u64
 void GPULogger::LogSkyrimBufferAccess(const char* kind, u64 buffer_cpu_addr,
                                       uintptr_t vk_buffer, u64 device_address, u64 offset,
                                       u64 size, bool is_written, u64 scheduler_tick) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (!GPU::Logging::IsActive()) {
         return;
     }
     const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -489,45 +489,8 @@ void GPULogger::LogSkyrimBufferAccess(const char* kind, u64 buffer_cpu_addr,
     FlushSkyrimCaptureIfNeeded();
 }
 
-void GPULogger::LogSkyrimComputeCadence(u64 shader_hash, u32 group_x, u32 group_y,
-                                          u32 group_z, u64 target_interval_ns,
-                                          u64 wait_us) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
-        return;
-    }
-    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now().time_since_epoch());
-    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-    WriteToLog(fmt::format(
-        "[{}] [SkyrimComputeCadence] wall_ms={} shader={:#x} groups={}x{}x{} "
-        "target_interval_ns={} inserted_wait_us={} policy=delay_preserve_dispatch\n",
-        FormatTimestamp(mono), wall, shader_hash, group_x, group_y, group_z,
-        target_interval_ns, wait_us));
-    FlushSkyrimCaptureIfNeeded();
-}
-
-void GPULogger::LogSkyrimComputeBarrierProbe(u64 shader_hash, const char* path, u32 group_x,
-                                             u32 group_y, u32 group_z,
-                                             bool barrier_recorded) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
-        return;
-    }
-    const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now().time_since_epoch());
-    const auto wall = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-    WriteToLog(fmt::format(
-        "[{}] [SkyrimBarrierProbe] wall_ms={} shader={:#x} path={} groups={}x{}x{} "
-        "result={} src_stage=COMPUTE_SHADER src_access=SHADER_WRITE "
-        "dst_stage=ALL_COMMANDS dst_access=MEMORY_READ|MEMORY_WRITE\n",
-        FormatTimestamp(mono), wall, shader_hash, path, group_x, group_y, group_z,
-        barrier_recorded ? "barrier_recorded" : "barrier_disabled"));
-    FlushSkyrimCaptureIfNeeded();
-}
-
 void GPULogger::LogSkyrimQueueSubmit(u64 tick, int result) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (!GPU::Logging::IsActive()) {
         return;
     }
     const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -540,7 +503,7 @@ void GPULogger::LogSkyrimQueueSubmit(u64 tick, int result) {
 }
 
 void GPULogger::LogSkyrimGpuComplete(u64 tick, const char* source) {
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (!GPU::Logging::IsActive()) {
         return;
     }
     const auto mono = std::chrono::duration_cast<std::chrono::microseconds>(

@@ -602,7 +602,7 @@ void BufferCacheRuntime::BindIndexBuffer(PrimitiveTopology topology, IndexFormat
         ReserveNullBuffer();
         vk_buffer = *null_buffer;
     }
-    if (Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (GPU::Logging::IsActive()) {
         GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
             "index", 0, reinterpret_cast<uintptr_t>(vk_buffer), 0,
             vk_offset, size, false, scheduler.CurrentTick());
@@ -634,7 +634,7 @@ void BufferCacheRuntime::BindVertexBuffer(u32 index, VkBuffer buffer, u32 offset
     if (index >= device.GetMaxVertexInputBindings()) {
         return;
     }
-    if (Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (GPU::Logging::IsActive()) {
         GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(
             "vertex_single", 0, reinterpret_cast<uintptr_t>(buffer), 0,
             offset, size, false, scheduler.CurrentTick());
@@ -659,7 +659,7 @@ void BufferCacheRuntime::BindVertexBuffer(u32 index, VkBuffer buffer, u32 offset
 }
 
 void BufferCacheRuntime::BindVertexBuffers(VideoCommon::HostBindings<Buffer>& bindings) {
-    if (Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (GPU::Logging::IsActive()) {
         for (size_t i = 0; i < bindings.buffers.size(); ++i) {
             const Buffer& buffer = *bindings.buffers[i];
             GPU::Logging::GPULogger::GetInstance().LogSkyrimBufferAccess(

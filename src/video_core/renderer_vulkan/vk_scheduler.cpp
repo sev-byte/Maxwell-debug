@@ -107,7 +107,7 @@ void Scheduler::BeginRenderPassImpl(const Framebuffer* framebuffer, VkRenderPass
                         framebuffer->NumImages());
         GPU::Logging::GPULogger::GetInstance().LogRenderPassBegin(render_pass_info);
     }
-    if (Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (GPU::Logging::IsActive()) {
         std::string attachment_info = fmt::format(
             "event=begin framebuffer={:#x} render_area={}x{} attachment_count={}",
             reinterpret_cast<uintptr_t>(framebuffer_handle), render_area.width, render_area.height,

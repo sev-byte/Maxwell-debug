@@ -173,7 +173,7 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
 
     // Capture the compute shader's actual constant-buffer inputs. Graphics-only
     // snapshots cannot identify the data used by the per-frame compute dispatch.
-    if (Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (GPU::Logging::IsActive()) {
         for (size_t index = 0; index < uniform_buffer_sizes.size(); ++index) {
             if (((info.constant_buffer_mask >> index) & 1U) == 0 ||
                 ((qmd.const_buffer_enable_mask >> index) & 1U) == 0) {

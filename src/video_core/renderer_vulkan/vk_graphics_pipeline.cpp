@@ -379,11 +379,13 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     // the stable and unstable captures. Keep both so the resource trace covers
     // the stable 0x58484... variant as well as the earlier 0x331f... variant.
     const bool is_skyrim_scene_shader_pair =
-        key.unique_hashes[1] == 0xa71664c0a2643d30ULL &&
-        (key.unique_hashes[5] == 0x331f0de4dc79b7baULL ||
-         key.unique_hashes[5] == 0x58484bdeb060359cULL);
+        (key.unique_hashes[1] == 0xa71664c0a2643d30ULL &&
+         (key.unique_hashes[5] == 0x331f0de4dc79b7baULL ||
+          key.unique_hashes[5] == 0x58484bdeb060359cULL)) ||
+        (key.unique_hashes[1] == 0x23b2024b1d37cbf9ULL &&
+         key.unique_hashes[5] == 0xd51dd8e22a73bdd4ULL);
     const bool trace_skyrim_resources =
-        Settings::values.maxwell_issue_tracking.GetValue() && is_skyrim_scene_shader_pair;
+        GPU::Logging::IsActive() && is_skyrim_scene_shader_pair;
     views.reserve(num_image_elements);
     samplers.reserve(num_textures);
 
