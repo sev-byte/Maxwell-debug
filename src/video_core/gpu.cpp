@@ -211,6 +211,10 @@ struct GPU::Impl {
         gpu_thread.FlushRegion(addr, size, is_async);
     }
 
+    bool ShouldBypassCPUReadAreaCache(DAddr addr, u64 size) {
+        return renderer->ReadRasterizer()->ShouldBypassCPUReadAreaCache(addr, size);
+    }
+
     VideoCore::RasterizerDownloadArea OnCPURead(DAddr addr, u64 size) {
         auto raster_area = renderer->ReadRasterizer()->GetFlushArea(addr, size);
         if (raster_area.preemtive) {
@@ -512,6 +516,10 @@ void GPU::PushGPUEntries(s32 channel, Tegra::CommandList&& entries) {
 
 VideoCore::RasterizerDownloadArea GPU::OnCPURead(PAddr addr, u64 size) {
     return impl->OnCPURead(addr, size);
+}
+
+bool GPU::ShouldBypassCPUReadAreaCache(DAddr addr, u64 size) {
+    return impl->ShouldBypassCPUReadAreaCache(addr, size);
 }
 
 void GPU::FlushRegion(DAddr addr, u64 size) {
