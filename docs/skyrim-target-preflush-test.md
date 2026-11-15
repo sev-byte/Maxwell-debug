@@ -53,18 +53,33 @@ The uploaded release asset `Eden.preflushable.log.zip` contains only `eden_gpu.l
 
 The user reports no visible change with this test build. That result alone does not tell us whether the bypass path ran, because the required `MAXWELL-PREFLUSH` messages are in the missing ordinary application log.
 
-### Required companion log
+### Supplied companion application log — 15 November 2026
 
-Upload `eden_log.txt` from the same test session as a second asset on the [same GitHub release](https://github.com/sev-byte/Maxwell-debug/releases/tag/preflush-capture-2026-11-15). We need to check for:
+The supplied file `eden_log(5).txt` was added to the public investigation branch as [`eden_log_companion.txt`](../captures/preflush-bypass/eden_log_companion.txt).
+
+- Size: 16,780 bytes
+- Lines: 110
+- First/last elapsed timestamps: 0.001041s / 0.147786s
+- Span: 0.146745 seconds
+- Content: UDP input initialization followed by NCA decryption/key-generation errors
+- `MAXWELL-PREFLUSH matched target lighting compute shader`: absent
+- `MAXWELL-PREFLUSH target SSBO write`: absent
+- `MAXWELL-PREFLUSH bypass`: absent
+
+This is only a short startup fragment, not a runtime application log covering the 32.951-second GPU trace. The absence of markers in this fragment does **not** prove that the bypass failed. GitHub Actions now scans this file alongside the GPU capture and explicitly reports its short time coverage.
+
+### Still needed
+
+Please provide the complete `eden_log.txt` from the same test session as the GPU capture, including the runtime period. We need these messages:
 
 - `MAXWELL-PREFLUSH matched target lighting compute shader`
-- `MAXWELL-PREFLUSH target SSBO write` — expected range to compare against CPU address `0x7491000`, size `6553600`
-- `MAXWELL-PREFLUSH bypass` — whether a CPU read actually reached the targeted bypass for that range
+- `MAXWELL-PREFLUSH target SSBO write` — compare against CPU address `0x7491000`, size `6553600`
+- `MAXWELL-PREFLUSH bypass` — whether a CPU read reached the targeted bypass for that range
 
-Interpretation after the companion log is available:
-- Match + SSBO-write + bypass: the intervention reached the readback path; the unchanged picture would make preflush alone an unlikely explanation.
-- Match + SSBO-write but no bypass: the target output was tracked, but no matching CPU read is shown reaching the bypass.
+Only the full runtime log can distinguish:
+- Match + SSBO-write + bypass: the intervention reached the readback path; unchanged visuals would make preflush alone an unlikely explanation.
+- Match + SSBO-write but no bypass: the output was tracked, but no relevant CPU read reached the bypass.
 - Match but no SSBO-write: investigate why the output binding did not enter the targeted write path.
-- No match: reconcile the installed build/logging configuration before drawing conclusions.
+- No match in a complete same-session log: investigate build/configuration or the dispatch predicate.
 
 Full GitHub-runner scan, archive manifest, raw event samples and descriptor decoding: [preflush capture report](preflush-bypass-capture-report.md).
