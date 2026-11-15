@@ -1,0 +1,68 @@
+name: Inspect Skyrim preflush capture
+
+on:
+  push:
+    branches:
+      - skyrim-target-preflush-test
+    paths:
+      - '.github/workflows/inspect-preflush-capture.yml'
+      - 'tools/inspect_preflush_capture.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  inspect-capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out investigation branch
+        uses: actions/checkout@v4
+        with:
+          ref: skyrim-target-preflush-test
+          fetch-depth: 1
+
+      - name: Download published capture from GitHub Release
+        env:
+          CAPTURE_URL: https://github.com/sev-byte/Maxwell-debug/releases/download/preflush-capture-2026-11-15/Eden.preflushable.log.zip
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 2 \
+            "$CAPTURE_URL" \
+            --output "$RUNNER_TEMP/Eden.preflushable.log.zip"
+          ls -lh "$RUNNER_TEMP/Eden.preflushable.log.zip"
+          sha256sum "$RUNNER_TEMP/Eden.preflushable.log.zip"
+
+      - name: Inspect archive and update investigation notes
+        run: |
+          set -euo pipefail
+          python3 tools/inspect_preflush_capture.py \
+            --zip "$RUNNER_TEMP/Eden.preflushable.log.zip" \
+            --report docs/preflush-bypass-capture-report.md \
+            --notes docs/skyrim-target-preflush-test.md
+
+      - name: Upload inspection report as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: preflush-capture-inspection-report
+          path: |
+            docs/preflush-bypass-capture-report.md
+            docs/skyrim-target-preflush-test.md
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit inspection report and updated notes to GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/preflush-bypass-capture-report.md docs/skyrim-target-preflush-test.md
+          if git diff --cached --quiet; then
+            echo "No note changes to commit."
+            exit 0
+          fi
+          git commit -m "Record preflush capture inspection results"
+          git push origin HEAD:skyrim-target-preflush-test
