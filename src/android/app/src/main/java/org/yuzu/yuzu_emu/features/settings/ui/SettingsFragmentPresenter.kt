@@ -18,6 +18,7 @@ import org.yuzu.yuzu_emu.features.input.model.NpadStyleIndex
 import org.yuzu.yuzu_emu.features.settings.model.AbstractBooleanSetting
 import org.yuzu.yuzu_emu.features.settings.model.AbstractIntSetting
 import org.yuzu.yuzu_emu.features.settings.model.BooleanSetting
+import org.yuzu.yuzu_emu.features.settings.model.ChandelierDebugSetting
 import org.yuzu.yuzu_emu.features.settings.model.FxPresetNameSetting
 import org.yuzu.yuzu_emu.features.settings.model.ByteSetting
 import org.yuzu.yuzu_emu.features.settings.model.IntSetting
@@ -1542,6 +1543,37 @@ class SettingsFragmentPresenter(
             add(HeaderSetting(R.string.general))
 
             add(UShortSetting.DEBUG_KNOBS.key)
+
+            add(HeaderSetting(R.string.chandelier_test_header))
+            add(
+                SwitchSetting(
+                    ChandelierDebugSetting.DISABLE_ANIMATION_A,
+                    titleId = R.string.chandelier_disable_animation_a,
+                    descriptionId = R.string.chandelier_disable_animation_a_description
+                )
+            )
+            add(
+                SwitchSetting(
+                    ChandelierDebugSetting.DISABLE_ANIMATION_B,
+                    titleId = R.string.chandelier_disable_animation_b,
+                    descriptionId = R.string.chandelier_disable_animation_b_description
+                )
+            )
+            add(
+                SwitchSetting(
+                    ChandelierDebugSetting.CAP_TO_4,
+                    titleId = R.string.chandelier_cap_to_4,
+                    descriptionId = R.string.chandelier_cap_to_4_description
+                )
+            )
+            add(
+                SwitchSetting(
+                    ChandelierDebugSetting.CAP_TO_5,
+                    titleId = R.string.chandelier_cap_to_5,
+                    descriptionId = R.string.chandelier_cap_to_5_description
+                )
+            )
+
             add(StringSetting.PROGRAM_ARGS.key)
 
             if (!NativeConfig.isPerGameConfigLoaded()) {
