@@ -10,7 +10,6 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
-#include <thread>
 
 #include <fmt/format.h>
 
@@ -721,61 +720,11 @@ void RasterizerVulkan::DispatchCompute() {
     if (!pipeline) {
         return;
     }
-
-    const u64 shader_hash = pipeline->ShaderHash();
-    const bool barrier_probe = Settings::values.maxwell_compute_barrier_probe.GetValue();
-    const auto& cadence_qmd{kepler_compute->launch_description};
-    constexpr u64 SKYRIM_CADENCE_SHADER = 0x4577aed68dd75eccULL;
-    constexpr std::array<u32, 3> SKYRIM_CADENCE_GROUPS{320, 6, 1};
-    constexpr auto SKYRIM_CADENCE_INTERVAL = std::chrono::nanoseconds{33'333'333};
-
-    // Diagnostic-only pacing for the compute dispatch isolated in the Skyrim barrier captures.
-    // This delays early arrivals on the guest GPU command thread; it never drops or replays work.
-    const bool cadence_target =
-        Settings::values.maxwell_compute_cadence_30hz.GetValue() &&
-        shader_hash == SKYRIM_CADENCE_SHADER &&
-        !kepler_compute->GetIndirectComputeAddress() &&
-        cadence_qmd.grid_dim_x == SKYRIM_CADENCE_GROUPS[0] &&
-        cadence_qmd.grid_dim_y == SKYRIM_CADENCE_GROUPS[1] &&
-        cadence_qmd.grid_dim_z == SKYRIM_CADENCE_GROUPS[2];
-    u64 cadence_wait_us{};
-    std::unique_lock<std::mutex> cadence_lock;
-    if (cadence_target) {
-        cadence_lock = std::unique_lock<std::mutex>{compute_cadence_mutex};
-        const auto arrival = std::chrono::steady_clock::now();
-        const auto dispatch_slot = std::max(arrival, next_skyrim_compute_dispatch);
-        if (dispatch_slot > arrival) {
-            std::this_thread::sleep_until(dispatch_slot);
-        }
-        const auto actual_start = std::chrono::steady_clock::now();
-        cadence_wait_us = static_cast<u64>(
-            std::chrono::duration_cast<std::chrono::microseconds>(actual_start - arrival)
-                .count());
-    }
-
     std::scoped_lock lock{texture_cache.mutex, buffer_cache.mutex};
     if (!pipeline->Configure(*kepler_compute, *gpu_memory, scheduler, buffer_cache,
                              texture_cache)) {
         return;
     }
-
-    // Commit the next cadence slot only once the target pipeline configured successfully.
-    if (cadence_lock.owns_lock()) {
-        next_skyrim_compute_dispatch =
-            std::chrono::steady_clock::now() + SKYRIM_CADENCE_INTERVAL;
-        cadence_lock.unlock();
-        GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeCadence(
-            shader_hash, SKYRIM_CADENCE_GROUPS[0], SKYRIM_CADENCE_GROUPS[1],
-            SKYRIM_CADENCE_GROUPS[2], static_cast<u64>(SKYRIM_CADENCE_INTERVAL.count()),
-            cadence_wait_us);
-    }
-
-    static constexpr VkMemoryBarrier COMPUTE_WRITE_BARRIER{
-        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-        .pNext = nullptr,
-        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
-    };
 
     const auto& qmd{kepler_compute->launch_description};
     auto indirect_address = kepler_compute->GetIndirectComputeAddress();
@@ -787,19 +736,11 @@ void RasterizerVulkan::DispatchCompute() {
             buffer_cache.ObtainBuffer(*indirect_address, 12, sync_info, post_op);
         scheduler.RequestOutsideRenderPassOperationContext();
         scheduler.Record([pipeline, indirect_buffer = buffer->Handle(),
-                          indirect_offset = offset, shader_hash,
-                          barrier_probe](vk::CommandBuffer cmdbuf) {
+                          indirect_offset = offset](vk::CommandBuffer cmdbuf) {
             if (!pipeline->IsBound()) {
                 return;
             }
             cmdbuf.DispatchIndirect(indirect_buffer, indirect_offset);
-            if (barrier_probe) {
-                cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                       VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
-                                       COMPUTE_WRITE_BARRIER);
-            }
-            GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeBarrierProbe(
-                shader_hash, "indirect", 0, 0, 0, barrier_probe);
         });
         return;
     }
@@ -809,7 +750,7 @@ void RasterizerVulkan::DispatchCompute() {
         return;
     }
     GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeDispatch(
-        shader_hash, dim[0], dim[1], dim[2]);
+        pipeline->ShaderHash(), dim[0], dim[1], dim[2]);
     scheduler.RequestOutsideRenderPassOperationContext();
     static constexpr VkMemoryBarrier READ_BARRIER{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
@@ -819,18 +760,11 @@ void RasterizerVulkan::DispatchCompute() {
     };
     scheduler.Record([](vk::CommandBuffer cmdbuf) { cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                0, READ_BARRIER); });
-    scheduler.Record([pipeline, dim, shader_hash, barrier_probe](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([pipeline, dim](vk::CommandBuffer cmdbuf) {
         if (!pipeline->IsBound()) {
             return;
         }
         cmdbuf.Dispatch(dim[0], dim[1], dim[2]);
-        if (barrier_probe) {
-            cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                   VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
-                                   COMPUTE_WRITE_BARRIER);
-        }
-        GPU::Logging::GPULogger::GetInstance().LogSkyrimComputeBarrierProbe(
-            shader_hash, "direct", dim[0], dim[1], dim[2], barrier_probe);
     });
 
     // Log compute dispatch
@@ -865,7 +799,7 @@ void RasterizerVulkan::Query(GPUVAddr gpu_addr, VideoCommon::QueryType type,
 void RasterizerVulkan::BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr,
                                                  u32 size) {
     buffer_cache.BindGraphicsUniformBuffer(stage, index, gpu_addr, size);
-    if (!Settings::values.maxwell_issue_tracking.GetValue()) {
+    if (!GPU::Logging::IsActive()) {
         return;
     }
 

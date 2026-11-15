@@ -1,4 +1,4 @@
-name: Build Maxwell Issue Tracking APK
+name: Build Maxwell Chandelier Trace APK
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
       - maxwell-issue-tracking
       - skyrim-light-data-capture
       - skyrim-stable-30hz-cadence
+      - skyrim-chandelier-wall-sconce-test
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
@@ -69,7 +70,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: eden-maxwell-issue-tracking-arm64
+          name: eden-maxwell-chandelier-trace-arm64
           path: src/android/app/build/outputs/apk/mainline/release/*.apk
           if-no-files-found: error
           retention-days: 14
