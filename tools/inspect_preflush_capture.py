@@ -19,9 +19,15 @@ PATTERNS = {
     "volumetric_hash": re.compile(VOLUMETRIC_HASH, re.I),
     "preflushable_true": re.compile(r"preflushable_before\s*=\s*true", re.I),
     "preflushable_false": re.compile(r"preflushable_before\s*=\s*false", re.I),
+    "compute_dispatch_320x6x1": re.compile(r"\[SkyrimCompute\].*shader=0x4577aed68dd75ecc.*groups=320x6x1", re.I),
+    "compute_resource_write": re.compile(r"\[SkyrimComputeResource\].*shader=0x4577aed68dd75ecc.*kind=ssbo.*written=true", re.I),
+    "compute_cb_slot0": re.compile(r"\[SkyrimComputeCB\].*shader=0x4577aed68dd75ecc.*slot=0", re.I),
+    "barrier_probe": re.compile(r"\[SkyrimBarrierProbe\].*shader=0x4577aed68dd75ecc", re.I),
+    "buffer_access": re.compile(r"\[SkyrimBufferAccess\]", re.I),
 }
 ADDR_RE = re.compile(r"addr\s*=\s*(0x[0-9a-f]+).*?size\s*=\s*(0x[0-9a-f]+)", re.I)
 WALL_RE = re.compile(r"wall_ms\s*=\s*(\d+)", re.I)
+CB_RE = re.compile(r"\[SkyrimComputeCB\].*shader=0x4577aed68dd75ecc.*slot=(\d+).*?data=([0-9a-f]+)", re.I)
 
 def human(n):
     x = float(n)
@@ -56,6 +62,21 @@ def scan_stream(stream, name, counts, samples, ranges, wall):
             if "MAXWELL-PREFLUSH bypass" in line:
                 m = ADDR_RE.search(line)
                 if m: ranges["bypasses"].add((m.group(1).lower(), m.group(2).lower()))
+            cb = CB_RE.search(line)
+            if cb and cb.group(1) == "0":
+                try:
+                    raw = bytes.fromhex(cb.group(2))
+                    if len(raw) >= 800:
+                        descriptor_gpu_va = int.from_bytes(raw[784:792], "little")
+                        descriptor_next = int.from_bytes(raw[792:800], "little")
+                        ranges["ssbo_descriptors"].add((
+                            f"0x{descriptor_gpu_va:x}",
+                            f"0x{descriptor_next:016x}",
+                            f"0x{descriptor_next & 0xffffffff:08x}",
+                            f"0x{descriptor_next >> 32:08x}",
+                        ))
+                except ValueError:
+                    counts["descriptor_decode_errors"] += 1
             m = WALL_RE.search(line)
             if m: wall.append(int(m.group(1)))
     finally:
@@ -67,7 +88,7 @@ def scan_stream(stream, name, counts, samples, ranges, wall):
 
 def inspect_zip(path):
     manifest, counts, samples = [], collections.Counter(), collections.defaultdict(list)
-    ranges, wall, notes = {"writes": set(), "bypasses": set()}, [], []
+    ranges, wall, notes = {"writes": set(), "bypasses": set(), "ssbo_descriptors": set()}, [], []
     def walk(zpath, label, depth=0):
         if depth > 2:
             notes.append("Nested ZIP depth exceeded: " + label)
@@ -108,24 +129,34 @@ def make_report(path):
     get = lambda k: counts.get(k, 0)
     writes, bypasses = ranges["writes"], ranges["bypasses"]
     overlap = writes & bypasses
-    if not get("shader_match"):
-        conclusion = ("No target-dispatch match marker was found. The capture does not demonstrate that "
-                      "the identified 320x6x1 shader predicate matched while diagnostics were active.")
-    elif not get("ssbo_write"):
-        conclusion = ("The target dispatch matched, but no target SSBO-write marker was found. The shader "
-                      "was recognised, but its instrumented writable SSBO path did not record an output range.")
-    elif not get("bypass"):
-        conclusion = ("Target SSBO writes were recorded, but no preflush-bypass marker was found. This "
-                      "capture does not show a CPU read reaching the bypass path for those tracked outputs.")
-    elif overlap:
-        conclusion = ("Shader match, target SSBO writes and preflush bypasses are all present, with at least "
-                      "one identical address/size pair in write and bypass records. The bypass was reached "
-                      "for a tracked range. Since the user reports no visual change, this weakens the idea "
-                      "that this preflush shortcut is the sole cause of the flicker.")
+    if get("compute_dispatch_320x6x1") and get("compute_resource_write"):
+        conclusion = (
+            "The GPU log confirms repeated direct 320x6x1 dispatch records for shader "
+            "0x4577aed68dd75ecc and a writable SSBO resource declaration (binding 0, "
+            "cbuf 0, offset 784). The three MAXWELL-PREFLUSH strings are ordinary LOG_INFO "
+            "messages, not GPULogger records; this ZIP contains only eden_gpu.log. Their "
+            "absence here therefore cannot show that the selection/write/bypass code failed. "
+            "The GPU log proves the target workload and writable SSBO are present, but the "
+            "ordinary application log (eden_log.txt) is needed to confirm whether the targeted "
+            "LOG_INFO write and read-bypass messages actually fired."
+        )
+    elif get("compute_dispatch_320x6x1"):
+        conclusion = (
+            "The GPU log confirms the target 320x6x1 compute dispatch, but no matching writable "
+            "SSBO resource declaration was parsed. The ordinary application log is also needed "
+            "because MAXWELL-PREFLUSH uses LOG_INFO rather than GPULogger."
+        )
+    elif get("shader_match") or get("ssbo_write") or get("bypass"):
+        conclusion = (
+            "Some MAXWELL-PREFLUSH LOG_INFO strings were present in this GPU log, but the expected "
+            "GPU event records were not identified. Compare this with the ordinary application log."
+        )
     else:
-        conclusion = ("Shader match, SSBO-write and bypass markers all appear, but no exact address/size "
-                      "pair matches between write and bypass records. The bypass ran, but range identity "
-                      "is not established by the parsed log lines.")
+        conclusion = (
+            "No target 320x6x1 SkyrimCompute event was found. Because the archive contains only "
+            "eden_gpu.log, the absence of ordinary MAXWELL-PREFLUSH LOG_INFO messages is not evidence "
+            "that those code paths failed."
+        )
     out = [
         "# Skyrim preflush bypass capture inspection", "",
         f"Capture: {ASSET_URL}",
@@ -147,7 +178,12 @@ def make_report(path):
             f"| Target shader hash {TARGET_HASH} | {get('target_hash')} |",
             f"| 3D-image compute lead {VOLUMETRIC_HASH} | {get('volumetric_hash')} |",
             f"| preflushable_before=true | {get('preflushable_true')} |",
-            f"| preflushable_before=false | {get('preflushable_false')} |", "",
+            f"| preflushable_before=false | {get('preflushable_false')} |",
+            f"| Exact target [SkyrimCompute] 320x6x1 events | {get('compute_dispatch_320x6x1')} |",
+            f"| Target writable [SkyrimComputeResource] events | {get('compute_resource_write')} |",
+            f"| Target CB0 snapshots | {get('compute_cb_slot0')} |",
+            f"| Target [SkyrimBarrierProbe] events | {get('barrier_probe')} |",
+            f"| [SkyrimBufferAccess] events (all buffers) | {get('buffer_access')} |", "",
             f"- Text files scanned: {get('files_scanned')}",
             f"- Text lines scanned: {get('text_lines'):,}",
             f"- Lines with UTF-8 replacement characters: {get('replacement_lines'):,}"]
@@ -157,15 +193,29 @@ def make_report(path):
             f"- Unique bypass address/size pairs: {len(bypasses)}",
             f"- Exact address/size intersections: {len(overlap)}"]
     for addr, size in sorted(overlap)[:100]: out.append(f"  - {addr} size {size}")
+    out += ["", "## SSBO descriptor bytes decoded from captured CB0",
+            "For each target-shader CB0 snapshot, the scanner decoded the 16 bytes at the resource descriptor offset 784: "
+            "the first 8 bytes as a candidate GPU virtual address and the next 8 bytes as the size/flags qword. "
+            "This mirrors the descriptor fields read by BufferCache; the lower 32 bits are a candidate packed size, "
+            "and the upper 32 bits must be zero before that size interpretation is accepted."]
+    descriptors = ranges["ssbo_descriptors"]
+    out.append(f"- Unique decoded descriptor tuples: {len(descriptors)}")
+    for gpu_va, next_qword, packed_size, upper in sorted(descriptors)[:50]:
+        out.append(f"  - candidate GPU VA {gpu_va}; next_qword {next_qword}; lower32 {packed_size}; upper32 {upper}")
     out += ["", "## Interpretation", conclusion, "",
             "The user-reported visual outcome for this capture was no visible change. "
-            "The log establishes whether the instrumented path ran; it does not alone prove the visual cause.", ""]
+            "The GPU log contains workload/resource events; LOG_INFO preflush messages are written via "
+            "the separate ordinary application logging backend and are not present in this ZIP.", ""]
     for key, label in [
         ("shader_match", "Shader match samples"),
         ("ssbo_write", "Target SSBO write samples"),
         ("bypass", "Bypass samples"),
         ("target_hash", "Raw target-hash line samples"),
         ("volumetric_hash", "Raw secondary compute-hash line samples"),
+        ("compute_dispatch_320x6x1", "Target 320x6x1 dispatch-event samples"),
+        ("compute_resource_write", "Target writable SSBO resource-event samples"),
+        ("compute_cb_slot0", "Target CB0 snapshot samples"),
+        ("barrier_probe", "Target barrier-probe samples"),
     ]:
         out.append("## " + label)
         entries = samples.get(key, [])
