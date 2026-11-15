@@ -36,10 +36,26 @@ Archive size: 237.6 MB
 - Unique bypass address/size pairs: 0
 - Exact address/size intersections: 0
 
+## Target dispatch timing
+- Direct target dispatches: 705
+- First/last wall_ms: 1794774907162 / 1794774940113
+- Span: 32951 ms
+- Host-side dispatch record rate: 21.40 per second
+- Inter-dispatch interval: min=30 ms; median=45.0 ms; max=178 ms
+
 ## SSBO descriptor bytes decoded from captured CB0
 For each target-shader CB0 snapshot, the scanner decoded the 16 bytes at the resource descriptor offset 784: the first 8 bytes as a candidate GPU virtual address and the next 8 bytes as the size/flags qword. This mirrors the descriptor fields read by BufferCache; the lower 32 bits are a candidate packed size, and the upper 32 bits must be zero before that size interpretation is accepted.
 - Unique decoded descriptor tuples: 1
   - candidate GPU VA 0x508380000; next_qword 0x0000000000640000; lower32 0x00640000; upper32 0x00000000
+
+## BufferCache storage-write access records
+- Unique storage-write ranges in GPULogger events: 1
+  - buffer_cpu_addr=0x7490000; device_addr=0x0; offset=4096; size=6553600; events=705
+- Buffer access event counts by kind/access:
+  - index_read: 658337
+  - storage_write: 705
+  - uniform_read: 126610
+  - vertex_read: 733460
 
 ## Interpretation
 The GPU log confirms repeated direct 320x6x1 dispatch records for shader 0x4577aed68dd75ecc and a writable SSBO resource declaration (binding 0, cbuf 0, offset 784). The three MAXWELL-PREFLUSH strings are ordinary LOG_INFO messages, not GPULogger records; this ZIP contains only eden_gpu.log. Their absence here therefore cannot show that the selection/write/bypass code failed. The GPU log proves the target workload and writable SSBO are present, but the ordinary application log (eden_log.txt) is needed to confirm whether the targeted LOG_INFO write and read-bypass messages actually fired.
@@ -217,6 +233,38 @@ The user-reported visual outcome for this capture was no visible change. The GPU
 - Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 397168: [810473.937108] [SkyrimBarrierProbe] wall_ms=1794774909081 shader=0x4577aed68dd75ecc path=direct groups=320x6x1 result=barrier_disabled src_stage=COMPUTE_SHADER src_access=SHADER_WRITE dst_stage=ALL_COMMANDS dst_access=MEMORY_READ|MEMORY_WRITE
 - Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 407193: [810474.009400] [SkyrimBarrierProbe] wall_ms=1794774909153 shader=0x4577aed68dd75ecc path=direct groups=320x6x1 result=barrier_disabled src_stage=COMPUTE_SHADER src_access=SHADER_WRITE dst_stage=ALL_COMMANDS dst_access=MEMORY_READ|MEMORY_WRITE
 - Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 414149: [810474.065724] [SkyrimBarrierProbe] wall_ms=1794774909209 shader=0x4577aed68dd75ecc path=direct groups=320x6x1 result=barrier_disabled src_stage=COMPUTE_SHADER src_access=SHADER_WRITE dst_stage=ALL_COMMANDS dst_access=MEMORY_READ|MEMORY_WRITE
+
+## Storage-buffer write access samples
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 161016: [810472.018463] [SkyrimBufferAccess] wall_ms=1794774907162 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2123
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 170004: [810472.196076] [SkyrimBufferAccess] wall_ms=1794774907340 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2129
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 178666: [810472.275199] [SkyrimBufferAccess] wall_ms=1794774907419 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2136
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 187324: [810472.335052] [SkyrimBufferAccess] wall_ms=1794774907479 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2142
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 196023: [810472.399932] [SkyrimBufferAccess] wall_ms=1794774907543 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2148
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 204751: [810472.460914] [SkyrimBufferAccess] wall_ms=1794774907604 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2154
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 213481: [810472.531426] [SkyrimBufferAccess] wall_ms=1794774907675 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2160
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 222204: [810472.596864] [SkyrimBufferAccess] wall_ms=1794774907740 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2166
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 230927: [810472.669061] [SkyrimBufferAccess] wall_ms=1794774907813 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2172
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 239651: [810472.735922] [SkyrimBufferAccess] wall_ms=1794774907879 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2178
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 248374: [810472.809482] [SkyrimBufferAccess] wall_ms=1794774907953 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2184
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 257097: [810472.878333] [SkyrimBufferAccess] wall_ms=1794774908022 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2190
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 265819: [810472.943937] [SkyrimBufferAccess] wall_ms=1794774908087 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2196
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 274543: [810473.008402] [SkyrimBufferAccess] wall_ms=1794774908152 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2202
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 283275: [810473.066297] [SkyrimBufferAccess] wall_ms=1794774908210 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2208
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 292004: [810473.133753] [SkyrimBufferAccess] wall_ms=1794774908277 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2214
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 300733: [810473.202701] [SkyrimBufferAccess] wall_ms=1794774908346 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2220
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 309464: [810473.293371] [SkyrimBufferAccess] wall_ms=1794774908437 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2226
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 318194: [810473.353078] [SkyrimBufferAccess] wall_ms=1794774908497 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2232
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 326874: [810473.415022] [SkyrimBufferAccess] wall_ms=1794774908559 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2238
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 335555: [810473.474014] [SkyrimBufferAccess] wall_ms=1794774908618 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2243
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 344236: [810473.531105] [SkyrimBufferAccess] wall_ms=1794774908675 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2250
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 352918: [810473.618626] [SkyrimBufferAccess] wall_ms=1794774908762 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2256
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 361599: [810473.677977] [SkyrimBufferAccess] wall_ms=1794774908821 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2262
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 370276: [810473.735535] [SkyrimBufferAccess] wall_ms=1794774908879 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2268
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 378953: [810473.795829] [SkyrimBufferAccess] wall_ms=1794774908939 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2273
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 387630: [810473.853138] [SkyrimBufferAccess] wall_ms=1794774908997 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2280
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 396312: [810473.934540] [SkyrimBufferAccess] wall_ms=1794774909078 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2286
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 404990: [810474.001124] [SkyrimBufferAccess] wall_ms=1794774909145 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2292
+- Eden.preflushable.log.zip!Eden preflushable log/eden_gpu.log, line 413667: [810474.064380] [SkyrimBufferAccess] wall_ms=1794774909208 kind=storage buffer_cpu_addr=0x7490000 vk_buffer=0x3feb0000003feb device_addr=0x0 offset=4096 size=6553600 access=write scheduler_tick=2298
 
 ## Secondary compute-shader lead
 The separate compute hash 8c0d043b68e7a6d1 is counted as a lead because earlier analysis found it writes a 3D storage image. Hash presence alone does not identify it as volumetric lighting; its dispatch and bound resource data must be correlated.
