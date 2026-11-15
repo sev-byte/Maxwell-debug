@@ -33,3 +33,9 @@ Use the same save position, camera direction, scene, and capture duration as the
 Check whether matching target writes are followed by CPU-read downloads of the same SSBO range. Compare visible flicker and dispatch/read/flush cadence against the unmodified `skyrim-stable-30hz-cadence` build.
 
 A change in flicker would support a stale CPU-visible buffer / skipped-download explanation. It would not by itself prove the preflushable marker is the only cause; the experiment also corrects Vulkan's omission of the BufferCache query and bypasses the cached CPU-read-area shortcut for this target range.
+
+## Capture inspection — 15 November 2026
+
+Scanned 1 text files / 3,540,084 lines. Markers match=0, SSBO-write=0, bypass=0; unique write ranges=0, bypass ranges=0, exact intersections=0. No target-dispatch match marker was found. The capture does not demonstrate that the identified 320x6x1 shader predicate matched while diagnostics were active.
+
+Full evidence and marker samples: [preflush capture report](preflush-bypass-capture-report.md).
