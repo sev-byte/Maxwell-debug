@@ -28,6 +28,11 @@ PATTERNS = {
 ADDR_RE = re.compile(r"addr\s*=\s*(0x[0-9a-f]+).*?size\s*=\s*(0x[0-9a-f]+)", re.I)
 WALL_RE = re.compile(r"wall_ms\s*=\s*(\d+)", re.I)
 CB_RE = re.compile(r"\[SkyrimComputeCB\].*shader=0x4577aed68dd75ecc.*slot=(\d+).*?data=([0-9a-f]+)", re.I)
+BUFFER_ACCESS_RE = re.compile(
+    r"\[SkyrimBufferAccess\].*kind=([a-z0-9_]+)\s+buffer_cpu_addr=(0x[0-9a-f]+)\s+"
+    r"vk_buffer=(0x[0-9a-f]+)\s+device_addr=(0x[0-9a-f]+)\s+offset=(\d+)\s+"
+    r"size=(\d+)\s+access=(read|write)\s+scheduler_tick=(\d+)", re.I
+)
 
 def human(n):
     x = float(n)
@@ -78,7 +83,21 @@ def scan_stream(stream, name, counts, samples, ranges, wall):
                 except ValueError:
                     counts["descriptor_decode_errors"] += 1
             m = WALL_RE.search(line)
-            if m: wall.append(int(m.group(1)))
+            if m:
+                wall_value = int(m.group(1))
+                wall.append(wall_value)
+                if "[SkyrimCompute]" in line and "shader=0x4577aed68dd75ecc" in line and "groups=320x6x1" in line:
+                    ranges["dispatch_wall_ms"].append(wall_value)
+            ba = BUFFER_ACCESS_RE.search(line)
+            if ba:
+                kind, cpu_addr, vk_buffer, device_addr, offset, size, access, tick = ba.groups()
+                counts[f"buffer_access_{kind.lower()}_{access.lower()}"] += 1
+                if kind.lower() == "storage" and access.lower() == "write":
+                    key = (cpu_addr.lower(), device_addr.lower(), int(offset), int(size))
+                    ranges["storage_write_ranges"].add(key)
+                    ranges["storage_write_counts"][key] += 1
+                    if len(samples["storage_write_access"]) < 30:
+                        samples["storage_write_access"].append((name, line_no, line[:1600]))
     finally:
         try: text.detach()
         except Exception: pass
@@ -88,7 +107,11 @@ def scan_stream(stream, name, counts, samples, ranges, wall):
 
 def inspect_zip(path):
     manifest, counts, samples = [], collections.Counter(), collections.defaultdict(list)
-    ranges, wall, notes = {"writes": set(), "bypasses": set(), "ssbo_descriptors": set()}, [], []
+    ranges, wall, notes = {
+        "writes": set(), "bypasses": set(), "ssbo_descriptors": set(),
+        "dispatch_wall_ms": [], "storage_write_ranges": set(),
+        "storage_write_counts": collections.Counter(),
+    }, [], []
     def walk(zpath, label, depth=0):
         if depth > 2:
             notes.append("Nested ZIP depth exceeded: " + label)
@@ -193,6 +216,16 @@ def make_report(path):
             f"- Unique bypass address/size pairs: {len(bypasses)}",
             f"- Exact address/size intersections: {len(overlap)}"]
     for addr, size in sorted(overlap)[:100]: out.append(f"  - {addr} size {size}")
+    dispatch_times = sorted(ranges["dispatch_wall_ms"])
+    if len(dispatch_times) > 1:
+        intervals = [b - a for a, b in zip(dispatch_times, dispatch_times[1:])]
+        span_ms = dispatch_times[-1] - dispatch_times[0]
+        out += ["", "## Target dispatch timing",
+                f"- Direct target dispatches: {len(dispatch_times)}",
+                f"- First/last wall_ms: {dispatch_times[0]} / {dispatch_times[-1]}",
+                f"- Span: {span_ms} ms",
+                f"- Host-side dispatch record rate: {len(dispatch_times) / (span_ms / 1000):.2f} per second",
+                f"- Inter-dispatch interval: min={min(intervals)} ms; median={__import__('statistics').median(intervals):.1f} ms; max={max(intervals)} ms"]
     out += ["", "## SSBO descriptor bytes decoded from captured CB0",
             "For each target-shader CB0 snapshot, the scanner decoded the 16 bytes at the resource descriptor offset 784: "
             "the first 8 bytes as a candidate GPU virtual address and the next 8 bytes as the size/flags qword. "
@@ -202,6 +235,15 @@ def make_report(path):
     out.append(f"- Unique decoded descriptor tuples: {len(descriptors)}")
     for gpu_va, next_qword, packed_size, upper in sorted(descriptors)[:50]:
         out.append(f"  - candidate GPU VA {gpu_va}; next_qword {next_qword}; lower32 {packed_size}; upper32 {upper}")
+    out += ["", "## BufferCache storage-write access records",
+            f"- Unique storage-write ranges in GPULogger events: {len(ranges['storage_write_ranges'])}"]
+    for key, n in ranges["storage_write_counts"].most_common(30):
+        cpu_addr, device_addr, offset, size = key
+        out.append(f"  - buffer_cpu_addr={cpu_addr}; device_addr={device_addr}; offset={offset}; size={size}; events={n}")
+    ba_counts = sorted((k, v) for k, v in counts.items() if k.startswith("buffer_access_"))
+    out.append("- Buffer access event counts by kind/access:")
+    for key, n in ba_counts:
+        out.append(f"  - {key.removeprefix('buffer_access_')}: {n}")
     out += ["", "## Interpretation", conclusion, "",
             "The user-reported visual outcome for this capture was no visible change. "
             "The GPU log contains workload/resource events; LOG_INFO preflush messages are written via "
@@ -216,6 +258,7 @@ def make_report(path):
         ("compute_resource_write", "Target writable SSBO resource-event samples"),
         ("compute_cb_slot0", "Target CB0 snapshot samples"),
         ("barrier_probe", "Target barrier-probe samples"),
+        ("storage_write_access", "Storage-buffer write access samples"),
     ]:
         out.append("## " + label)
         entries = samples.get(key, [])
