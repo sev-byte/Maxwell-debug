@@ -7,6 +7,7 @@ on:
       - maxwell-issue-tracking
       - skyrim-light-data-capture
       - skyrim-stable-30hz-cadence
+      - skyrim-target-preflush-test
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
