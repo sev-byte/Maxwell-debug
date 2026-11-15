@@ -226,7 +226,8 @@ public:
     void TickFrame();
 
     bool BindMultiRangeStorage(const Binding& binding, bool is_written,
-                               std::span<const MultiRangeSegment> pool);
+                               std::span<const MultiRangeSegment> pool,
+                               bool force_target_shader_flush = false);
 
     void ResolveMultiRangeStorage(Binding& binding, bool is_written,
                                   std::vector<MultiRangeSegment>& pool);
@@ -257,7 +258,7 @@ public:
 
     void BindHostStageBuffers(size_t stage);
 
-    void BindHostComputeBuffers();
+    void BindHostComputeBuffers(bool force_target_shader_flush);
 
     void SetUniformBuffersState(const std::array<u32, NUM_STAGES>& mask,
                                 const UniformBufferSizes* sizes);
@@ -315,6 +316,9 @@ public:
 
     /// Return true when a CPU region is modified from the GPU
     [[nodiscard]] bool IsRegionGpuModified(DAddr addr, size_t size);
+
+    /// Return true when a pending write from the isolated Skyrim compute shader overlaps a CPU read.
+    [[nodiscard]] bool HasTargetShaderReadFlush(DAddr addr, size_t size);
 
     /// Return true when a region is registered on the cache
     [[nodiscard]] bool IsRegionRegistered(DAddr addr, size_t size);
@@ -398,9 +402,9 @@ private:
 
     void BindHostComputeUniformBuffers();
 
-    void BindHostComputeStorageBuffers();
+    void BindHostComputeStorageBuffers(bool force_target_shader_flush);
 
-    void BindHostComputeTextureBuffers();
+    void BindHostComputeTextureBuffers(bool force_target_shader_flush);
 
     void DoUpdateGraphicsBuffers(bool is_indexed);
 
@@ -430,7 +434,8 @@ private:
 
     void UpdateComputeTextureBuffers();
 
-    void MarkWrittenBuffer(BufferId buffer_id, DAddr device_addr, u32 size, bool needs_sync = false);
+    void MarkWrittenBuffer(BufferId buffer_id, DAddr device_addr, u32 size, bool needs_sync = false,
+                           bool force_target_shader_flush = false);
 
     [[nodiscard]] BufferId FindBuffer(DAddr device_addr, u32 size, bool sparse_compatible);
 
@@ -514,6 +519,7 @@ private:
     MemoryTracker memory_tracker;
     Common::RangeSet<DAddr> uncommitted_gpu_modified_ranges;
     Common::RangeSet<DAddr> gpu_modified_ranges;
+    Common::RangeSet<DAddr> target_shader_write_ranges;
     std::deque<Common::RangeSet<DAddr>> committed_gpu_modified_ranges;
 
     // Async Buffers
