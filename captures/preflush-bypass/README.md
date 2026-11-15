@@ -45,7 +45,7 @@ The uploaded archive contains only `eden_gpu.log`. The preflush diagnostics begi
 
 **Please attach `eden_log.txt` from the same test session as a second asset to this release:**
 
-[Edit the existing preflush capture release](https://github.com/sev-byte/Maxwell-debug/releases/edit/preflush-capture-2026-11-15)
+[Open the published preflush capture release](https://github.com/sev-byte/Maxwell-debug/releases/tag/preflush-capture-2026-11-15)
 
 We need this file to verify:
 - whether the exact target shader dispatch was selected;
