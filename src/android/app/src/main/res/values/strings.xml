@@ -109,6 +109,16 @@
     <string name="debug_knobs_description">For development use only.</string>
     <string name="debug_knobs_hint">0 to 65535</string>
 
+    <string name="chandelier_test_header">Chandelier test</string>
+    <string name="chandelier_disable_animation_a">Disable animation A</string>
+    <string name="chandelier_disable_animation_a_description">Experimental Vulkan test: freezes the first candidate changing vector in the chandelier fragment buffer. Only the chandelier draw groups from the capture are affected.</string>
+    <string name="chandelier_disable_animation_b">Disable animation B</string>
+    <string name="chandelier_disable_animation_b_description">Experimental Vulkan test: freezes the second candidate changing vector in the chandelier fragment buffer. Only the chandelier draw groups from the capture are affected.</string>
+    <string name="chandelier_cap_to_4">Cap chandelier candles to 4</string>
+    <string name="chandelier_cap_to_4_description">Experimental Vulkan test: keeps the first four candidate 64-byte entries and zeros the remaining entries in the chandelier fragment buffer.</string>
+    <string name="chandelier_cap_to_5">Cap chandelier candles to 5</string>
+    <string name="chandelier_cap_to_5_description">Experimental Vulkan test: keeps the first five candidate 64-byte entries and zeros the remaining entries in the chandelier fragment buffer.</string>
+
     <!-- NVDEC Emulation -->
     <string name="nvdec_emulation">NVDEC Emulation</string>
     <string name="nvdec_emulation_description">Change to CPU if a crash occurs on cinematics.</string>
