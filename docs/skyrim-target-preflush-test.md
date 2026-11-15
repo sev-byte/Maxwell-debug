@@ -36,6 +36,35 @@ A change in flicker would support a stale CPU-visible buffer / skipped-download 
 
 ## Capture inspection — 15 November 2026
 
-Scanned 1 text files / 3,540,084 lines. Markers match=0, SSBO-write=0, bypass=0; unique write ranges=0, bypass ranges=0, exact intersections=0. No target-dispatch match marker was found. The capture does not demonstrate that the identified 320x6x1 shader predicate matched while diagnostics were active.
+The uploaded release asset `Eden.preflushable.log.zip` contains only `eden_gpu.log` (3,540,084 lines; 1.6 GB uncompressed). It does not contain the ordinary application log `eden_log.txt`.
 
-Full evidence and marker samples: [preflush capture report](preflush-bypass-capture-report.md).
+**Logging distinction:** the `[SkyrimCompute]`, `[SkyrimComputeResource]`, `[SkyrimComputeCB]` and `[SkyrimBufferAccess]` events are written by GPULogger to `eden_gpu.log`. The three `MAXWELL-PREFLUSH` diagnostics are emitted with ordinary `LOG_INFO` calls in `vk_compute_pipeline.cpp` and `buffer_cache.h`; the ordinary logging backend writes to `eden_log.txt`. Their absence from this GPU-only ZIP is therefore not evidence that the preflush code failed.
+
+### What the GPU log confirms
+
+- 705 direct dispatch records for shader `0x4577aed68dd75ecc`, all with groups `320x6x1`.
+- 705 writable SSBO resource records: binding 0, constant buffer 0, descriptor offset 784, `written=true`.
+- 705 CB0 snapshots for that shader.
+- 705 `SkyrimBarrierProbe` events report `barrier_disabled`; the compute-write barrier probe was off in this capture.
+- The CB0 descriptor at byte offset 784 decodes consistently in all 705 snapshots to candidate GPU VA `0x508380000`; the following qword is `0x0000000000640000` (lower 32 bits `0x00640000`, upper 32 bits zero; 6,553,600 bytes).
+- 705 storage-write access records all refer to one BufferCache window: `buffer_cpu_addr=0x7490000`, offset `4096`, size `6553600`. Since `Buffer::Offset()` is relative to `CpuAddr()`, the corresponding CPU-side start address is `0x7491000`.
+- The target dispatches span 32,951 ms (705 records; 21.40 host-side records/second; median interval 45 ms, min 30 ms, max 178 ms). This is the host-side diagnostic record cadence, not hardware GPU execution time.
+- The separate compute hash `0x8c0d043b68e7a6d1` appears only in a shader-compilation record; no dispatch/resource record for it appears in this capture.
+
+The user reports no visible change with this test build. That result alone does not tell us whether the bypass path ran, because the required `MAXWELL-PREFLUSH` messages are in the missing ordinary application log.
+
+### Required companion log
+
+Upload `eden_log.txt` from the same test session as a second asset on the [same GitHub release](https://github.com/sev-byte/Maxwell-debug/releases/edit/preflush-capture-2026-11-15). We need to check for:
+
+- `MAXWELL-PREFLUSH matched target lighting compute shader`
+- `MAXWELL-PREFLUSH target SSBO write` — expected range to compare against CPU address `0x7491000`, size `6553600`
+- `MAXWELL-PREFLUSH bypass` — whether a CPU read actually reached the targeted bypass for that range
+
+Interpretation after the companion log is available:
+- Match + SSBO-write + bypass: the intervention reached the readback path; the unchanged picture would make preflush alone an unlikely explanation.
+- Match + SSBO-write but no bypass: the target output was tracked, but no matching CPU read is shown reaching the bypass.
+- Match but no SSBO-write: investigate why the output binding did not enter the targeted write path.
+- No match: reconcile the installed build/logging configuration before drawing conclusions.
+
+Full GitHub-runner scan, archive manifest, raw event samples and descriptor decoding: [preflush capture report](preflush-bypass-capture-report.md).
