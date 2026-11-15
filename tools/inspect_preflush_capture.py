@@ -199,6 +199,22 @@ def make_report(path, app_log=None):
             "eden_gpu.log, the absence of ordinary MAXWELL-PREFLUSH LOG_INFO messages is not evidence "
             "that those code paths failed."
         )
+    if app_log is not None and app_log.is_file():
+        elapsed = ranges["app_elapsed_s"]
+        marker_total = sum(get(k) for k in ("shader_match", "ssbo_write", "bypass"))
+        if marker_total == 0 and elapsed and max(elapsed) - min(elapsed) < 1.0:
+            conclusion = (
+                f"The supplied companion application log has only {ranges['app_log_lines']} lines and spans "
+                f"{max(elapsed) - min(elapsed):.6f} seconds of startup. It contains no MAXWELL-PREFLUSH markers "
+                "and does not cover the runtime interval represented by the GPU trace. It therefore cannot "
+                "establish whether the target SSBO was marked or whether a CPU read reached the bypass."
+            )
+        elif marker_total == 0:
+            conclusion = (
+                "The supplied companion application log was scanned but contains none of the three "
+                "MAXWELL-PREFLUSH markers. Confirm that it is the full eden_log.txt from the same runtime session "
+                "before interpreting this as a code-path result."
+            )
     out = [
         "# Skyrim preflush bypass capture inspection", "",
         f"Capture: {ASSET_URL}",
