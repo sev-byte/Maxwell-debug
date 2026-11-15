@@ -146,3 +146,23 @@ Build #127 includes the rasterizer caller fix; build #128 includes both the call
 - Artifact expiry: 29 November 2026, 22:25 UTC
 
 The APK contains the corrected compute-wide preflush path and the per-game-only Debug UI row. The build itself validates compilation and packaging; the Settings screen navigation behaviour still needs confirmation on the user's device.
+
+### Broad compute SSBO experiment — user result, 15 November 2026
+
+The user tested successful ARM64 build #128 with **Lighting experiment → Disable light preflushing** enabled in Skyrim's per-game Debug settings before launch. They report that the flickering was unchanged. They also cleared the shader cache and repeated the test with a different graphics driver; neither changed the result.
+
+**Interpretation:** this is a strong visual negative for the broad compute-SSBO preflush/readback hypothesis. The next experiment should not widen the same SSBO intervention again. The result does not rule out writable compute storage images, image-backed resources, graphics-stage writable images/buffers, or other synchronization paths.
+
+**Logging caveat:** no matching runtime `eden_log.txt` has yet been attached for build #128, so the visual result is user-confirmed but the log marker `MAXWELL-PREFLUSH broad compute mode active` has not been independently checked for this session. A matching runtime log would confirm that the switch was read by the running renderer; it is not necessary to repeat the visual A/B test.
+
+### Next investigation — writable storage-image path
+
+The source keeps these paths separate:
+
+- Compute SSBOs are bound through `BufferCache::BindComputeStorageBuffer`; build #128's switch affects this path.
+- Compute storage images are described by `info.image_descriptors`, resolved through `TextureCache::FillImageViews`, then supplied to image descriptors. They do not pass through the same compute-SSBO range tracker.
+- Graphics stages independently bind storage buffers and writable images through the graphics pipeline configuration path.
+
+The next capture should first **identify and resolve writable storage-image descriptors**, rather than immediately force a global barrier. For each compute or graphics shader, record shader hash/stage, whether the descriptor is written, descriptor source, resolved image-view identity, image type, dimensions/depth, format, subresource range, and the associated GPU/CPU memory range where available. This will establish whether a 3D/volume-like resource is actually written in the flickering scene.
+
+The earlier shader hash `0x8c0d043b68e7a6d1` was only seen in a shader-compilation record in the earlier capture; it was not dispatched there. Do not label it a volumetric-lighting shader until a runtime dispatch and its writable image binding are observed.
