@@ -83,3 +83,35 @@ Only the full runtime log can distinguish:
 - No match in a complete same-session log: investigate build/configuration or the dispatch predicate.
 
 Full GitHub-runner scan, archive manifest, raw event samples and descriptor decoding: [preflush capture report](preflush-bypass-capture-report.md).
+
+
+## Broad compute preflush experiment — build #126
+
+The runtime application log `eden_log.txt.old(1).txt` resolved the earlier missing-logger issue. It contains 705 matches for the identified compute shader and 705 corresponding writable SSBO records. All 705 records refer to CPU range `0x7491000`, size `0x640000` (6,553,600 bytes), and all report `preflushable_before=false`. The log contains **zero** `MAXWELL-PREFLUSH bypass` messages.
+
+Interpretation: shader matching and SSBO write marking worked, but the log does not show a CPU read reaching the targeted bypass. The 705 writes were not found to be preflushable before being marked, so this test did not demonstrate the specific stale-preflush-promise scenario.
+
+### Build #126 change
+
+Commit: `253c30abdb629bbd32c74424cdcc83cbb0aab160`
+
+Added the per-game Debug setting **Lighting experiment → Disable light preflushing** (`maxwell_disable_light_preflush`).
+
+When enabled, it broadens the intervention from one shader hash and one dispatch shape to **every writable compute-shader SSBO**:
+- all writable compute SSBO ranges are marked as pending compute output;
+- a prior CPU-read preflushable promise is revoked for those ranges;
+- an overlapping CPU read cannot take the preflush shortcut and must take the non-preemptive download path;
+- ordinary graphics-stage storage buffers are not changed by this flag;
+- compute storage-image / image-descriptor paths are not yet included.
+
+This is intentionally a broad A/B test of the compute-buffer route, not a complete volumetric-lighting intervention. Keep it off for other games; enable it only in Skyrim for this experiment. It is off by default.
+
+### Test instructions
+
+1. Install the build from workflow run #126.
+2. Open Skyrim's per-game Debug settings.
+3. Under **Lighting experiment**, enable **Disable light preflushing**.
+4. Revisit the same scene and same flickering light sources used for the previous capture.
+5. Record whether the flicker changes, disappears, or remains identical. A visual change would support a compute-SSBO readback/preflush contribution; no change would weaken that route but would not exclude storage-image or graphics/volumetric paths.
+
+The next investigation should separately trace writable compute images and volumetric-related shaders. Do not describe those resource types as covered by build #126.
