@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: preflush-capture-inspection-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   inspect-capture:
     runs-on: ubuntu-24.04
@@ -67,4 +71,6 @@ jobs:
             exit 0
           fi
           git commit -m "Record preflush capture inspection results"
+          git fetch origin skyrim-target-preflush-test
+          git rebase origin/skyrim-target-preflush-test
           git push origin HEAD:skyrim-target-preflush-test
