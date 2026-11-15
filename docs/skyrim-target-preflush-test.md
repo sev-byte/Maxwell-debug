@@ -55,7 +55,7 @@ The user reports no visible change with this test build. That result alone does 
 
 ### Required companion log
 
-Upload `eden_log.txt` from the same test session as a second asset on the [same GitHub release](https://github.com/sev-byte/Maxwell-debug/releases/edit/preflush-capture-2026-11-15). We need to check for:
+Upload `eden_log.txt` from the same test session as a second asset on the [same GitHub release](https://github.com/sev-byte/Maxwell-debug/releases/tag/preflush-capture-2026-11-15). We need to check for:
 
 - `MAXWELL-PREFLUSH matched target lighting compute shader`
 - `MAXWELL-PREFLUSH target SSBO write` — expected range to compare against CPU address `0x7491000`, size `6553600`
