@@ -38,3 +38,18 @@ The three checks answer:
 3. Did a CPU read actually reach the preflush bypass?
 
 A missing message is useful evidence too; it tells us which part of the path was not reached.
+
+## Companion file still required
+
+The uploaded archive contains only `eden_gpu.log`. The preflush diagnostics beginning with `MAXWELL-PREFLUSH` are emitted through Eden's ordinary `LOG_INFO` logger, which writes to the separate file `eden_log.txt`, not to `eden_gpu.log`.
+
+**Please attach `eden_log.txt` from the same test session as a second asset to this release:**
+
+[Edit the existing preflush capture release](https://github.com/sev-byte/Maxwell-debug/releases/edit/preflush-capture-2026-11-15)
+
+We need this file to verify:
+- whether the exact target shader dispatch was selected;
+- whether its SSBO output was marked (expected CPU-side range start `0x7491000`, size `6553600`);
+- whether a CPU read actually triggered the preflush bypass.
+
+The GPU-only capture already confirms 705 direct target dispatches and 705 writes to the same storage-buffer window. The missing ordinary log is the remaining evidence needed to tell whether the bypass itself was reached.
