@@ -657,6 +657,11 @@
     <string name="log_filter">Log filter</string>
     <string name="log_filter_description">Controls Eden\'s log categories. Example: *:Info Service.LM:Debug</string>
 
+    <!-- Broad compute SSBO preflush experiment -->
+    <string name="maxwell_light_preflush_header">Lighting experiment</string>
+    <string name="maxwell_disable_light_preflush">Disable light preflushing</string>
+    <string name="maxwell_disable_light_preflush_description">Wide experimental A/B test: bypass the cached preflush shortcut for every writable compute-shader storage buffer in this game, not just the identified Skyrim shader. This can also affect non-lighting compute passes and may reduce performance. Per-game; off by default.</string>
+
     <!-- GPU Logging strings -->
     <string name="gpu_logging_header">Maxwell Issue Tracking</string>
     <string name="maxwell_issue_tracking">Enable tracking</string>

@@ -1039,6 +1039,15 @@ abstract class SettingsItem(
                 )
             )
 
+            // Broad compute SSBO preflush experiment (per-game).
+            put(
+                SwitchSetting(
+                    BooleanSetting.MAXWELL_DISABLE_LIGHT_PREFLUSH,
+                    titleId = R.string.maxwell_disable_light_preflush,
+                    descriptionId = R.string.maxwell_disable_light_preflush_description
+                )
+            )
+
             // GPU Logging settings
             put(
                 SwitchSetting(

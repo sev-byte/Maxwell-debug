@@ -169,13 +169,22 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     boost::container::small_vector<VideoCommon::SamplerId, 64> samplers;
 
     const auto& qmd{kepler_compute.launch_description};
-    constexpr u64 SKYRIM_PREFLUSH_SHADER = 0x4577aed68dd75eccULL;
-    const bool target_preflush_dispatch =
-        shader_hash == SKYRIM_PREFLUSH_SHADER && !kepler_compute.GetIndirectComputeAddress() &&
+    constexpr u64 SKYRIM_REFERENCE_SHADER = 0x4577aed68dd75eccULL;
+    const bool target_reference_dispatch =
+        shader_hash == SKYRIM_REFERENCE_SHADER && !kepler_compute.GetIndirectComputeAddress() &&
         qmd.grid_dim_x == 320 && qmd.grid_dim_y == 6 && qmd.grid_dim_z == 1;
-    if (target_preflush_dispatch) {
+    if (target_reference_dispatch) {
         LOG_INFO(Render_Vulkan,
                  "MAXWELL-PREFLUSH matched target lighting compute shader {:016X}, dispatch {}x{}x{}",
+                 shader_hash, qmd.grid_dim_x, qmd.grid_dim_y, qmd.grid_dim_z);
+    }
+
+    // Wide A/B test: include every writable compute SSBO, rather than one shader hash.
+    const bool force_compute_ssbo_preflush =
+        Settings::values.maxwell_disable_light_preflush.GetValue();
+    if (force_compute_ssbo_preflush) {
+        LOG_INFO(Render_Vulkan,
+                 "MAXWELL-PREFLUSH broad compute mode active: shader {:016X}, dispatch {}x{}x{}",
                  shader_hash, qmd.grid_dim_x, qmd.grid_dim_y, qmd.grid_dim_z);
     }
     const auto& cbufs{qmd.const_buffer_config};
@@ -296,7 +305,7 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     std::ranges::for_each(info.image_buffer_descriptors, add_buffer);
 
     buffer_cache.UpdateComputeBuffers();
-    buffer_cache.BindHostComputeBuffers(target_preflush_dispatch);
+    buffer_cache.BindHostComputeBuffers(force_compute_ssbo_preflush);
     if (buffer_cache.any_buffer_uploaded) {
         buffer_cache.runtime.PostCopyBarrier();
         buffer_cache.any_buffer_uploaded = false;

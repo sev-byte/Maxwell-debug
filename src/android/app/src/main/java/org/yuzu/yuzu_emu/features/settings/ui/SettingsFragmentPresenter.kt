@@ -1544,6 +1544,9 @@ class SettingsFragmentPresenter(
             add(UShortSetting.DEBUG_KNOBS.key)
             add(StringSetting.PROGRAM_ARGS.key)
 
+            add(HeaderSetting(R.string.maxwell_light_preflush_header))
+            add(BooleanSetting.MAXWELL_DISABLE_LIGHT_PREFLUSH.key)
+
             if (!NativeConfig.isPerGameConfigLoaded()) {
                 add(HeaderSetting(R.string.gpu_logging_header))
                 add(BooleanSetting.MAXWELL_ISSUE_TRACKING.key)

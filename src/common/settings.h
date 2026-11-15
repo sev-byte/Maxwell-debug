@@ -905,6 +905,10 @@ struct Values {
     // Experimental broad compute-write visibility probe; off by default.
     Setting<bool> maxwell_compute_barrier_probe{linkage, false, "maxwell_compute_barrier_probe",
                                                 Category::Debugging};
+    // Experimental broad override: mark every writable compute SSBO for non-preflush readback.
+    // Switchable so the test can be enabled for Skyrim only; off by default.
+    SwitchableSetting<bool> maxwell_disable_light_preflush{
+        linkage, false, "maxwell_disable_light_preflush", Category::Debugging};
     // Experimental cadence limiter for the identified Skyrim compute dispatch; off by default.
     Setting<bool> maxwell_compute_cadence_30hz{linkage, false, "maxwell_compute_cadence_30hz",
                                                Category::Debugging};
