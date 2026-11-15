@@ -169,6 +169,10 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     boost::container::small_vector<VideoCommon::SamplerId, 64> samplers;
 
     const auto& qmd{kepler_compute.launch_description};
+    constexpr u64 SKYRIM_PREFLUSH_SHADER = 0x4577aed68dd75eccULL;
+    const bool target_preflush_dispatch =
+        shader_hash == SKYRIM_PREFLUSH_SHADER && !kepler_compute.GetIndirectComputeAddress() &&
+        qmd.grid_dim_x == 320 && qmd.grid_dim_y == 6 && qmd.grid_dim_z == 1;
     const auto& cbufs{qmd.const_buffer_config};
 
     // Capture the compute shader's actual constant-buffer inputs. Graphics-only
@@ -287,7 +291,7 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     std::ranges::for_each(info.image_buffer_descriptors, add_buffer);
 
     buffer_cache.UpdateComputeBuffers();
-    buffer_cache.BindHostComputeBuffers();
+    buffer_cache.BindHostComputeBuffers(target_preflush_dispatch);
     if (buffer_cache.any_buffer_uploaded) {
         buffer_cache.runtime.PostCopyBarrier();
         buffer_cache.any_buffer_uploaded = false;
