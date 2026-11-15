@@ -14,6 +14,7 @@
 #include <mutex>
 #include <numeric>
 #include <span>
+#include <unordered_map>
 #include <vector>
 
 #include "common/container/unordered_map.h"
@@ -219,6 +220,10 @@ class BufferCache : public VideoCommon::ChannelSetupCaches<BufferCacheChannelInf
     };
 
 public:
+    void SetChandelierTestShaderActive(bool active) noexcept {
+        chandelier_test_shader_active = active;
+    }
+
     explicit BufferCache(Tegra::MaxwellDeviceMemoryManager& device_memory_, Runtime& runtime_);
 
     ~BufferCache();
@@ -546,6 +551,11 @@ private:
 
     std::array<BufferId, ((1ULL << 34) >> CACHING_PAGEBITS)> page_table;
     Common::ScratchBuffer<u8> tmp_buffer;
+
+    // Temporary renderer-side hypotheses used by the chandelier debug experiment.
+    bool chandelier_test_shader_active = false;
+    std::unordered_map<DAddr, std::array<u8, 16>> chandelier_animation_a_baselines;
+    std::unordered_map<DAddr, std::array<u8, 16>> chandelier_animation_b_baselines;
 };
 
 } // namespace VideoCommon
