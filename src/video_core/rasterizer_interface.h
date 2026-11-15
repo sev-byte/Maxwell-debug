@@ -99,6 +99,11 @@ public:
 
     virtual RasterizerDownloadArea GetFlushArea(DAddr addr, u64 size) = 0;
 
+    /// Return true when a pending targeted GPU write invalidates a cached CPU-read area.
+    virtual bool ShouldBypassCPUReadAreaCache(DAddr addr, u64 size) {
+        return false;
+    }
+
     /// Notify rasterizer that any caches of the specified region should be invalidated
     virtual void InvalidateRegion(DAddr addr, u64 size,
                                   VideoCommon::CacheType which = VideoCommon::CacheType::All) = 0;
