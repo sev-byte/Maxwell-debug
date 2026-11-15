@@ -253,6 +253,10 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
     // update engine as channel may be different.
     pipeline->SetEngine(maxwell3d, gpu_memory);
+    buffer_cache.SetChandelierTestShaderActive(pipeline->IsChandelierLightShader());
+    SCOPE_EXIT {
+        buffer_cache.SetChandelierTestShaderActive(false);
+    };
     attribute_handle_pipeline = nullptr;
     attribute_handle_runs.clear();
     if (split_attribute_handles && pipeline->UsesAttributeHandle()) {
