@@ -404,7 +404,7 @@ private:
 
     void BindHostComputeStorageBuffers(bool force_target_shader_flush);
 
-    void BindHostComputeTextureBuffers(bool force_target_shader_flush);
+    void BindHostComputeTextureBuffers();
 
     void DoUpdateGraphicsBuffers(bool is_indexed);
 
