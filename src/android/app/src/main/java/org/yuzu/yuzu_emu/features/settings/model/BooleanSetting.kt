@@ -84,10 +84,7 @@ enum class BooleanSetting(override val key: String) : AbstractBooleanSetting {
     DONT_SHOW_DRIVER_SHADER_WARNING("dont_show_driver_shader_warning"),
     ENABLE_OVERLAY("enable_overlay"),
 
-    // Maxwell Issue Tracking
-    MAXWELL_ISSUE_TRACKING("maxwell_issue_tracking"),
-    MAXWELL_COMPUTE_BARRIER_PROBE("maxwell_compute_barrier_probe"),
-    MAXWELL_COMPUTE_CADENCE_30HZ("maxwell_compute_cadence_30hz"),
+    // GPU Logging
     GPU_LOG_VULKAN_CALLS("gpu_log_vulkan_calls"),
     GPU_LOG_SHADER_DUMPS("gpu_log_shader_dumps"),
     DUMP_GUEST_SHADERS("dump_guest_shaders"),

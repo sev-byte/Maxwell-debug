@@ -900,14 +900,7 @@ struct Values {
     Setting<bool> perform_vulkan_check{linkage, true, "perform_vulkan_check", Category::Debugging};
     Setting<bool> disable_web_applet{linkage, true, "disable_web_applet", Category::Debugging};
 
-    // Maxwell Issue Tracking (diagnostics only; disabled by default)
-    Setting<bool> maxwell_issue_tracking{linkage, false, "maxwell_issue_tracking", Category::Debugging};
-    // Experimental broad compute-write visibility probe; off by default.
-    Setting<bool> maxwell_compute_barrier_probe{linkage, false, "maxwell_compute_barrier_probe",
-                                                Category::Debugging};
-    // Experimental cadence limiter for the identified Skyrim compute dispatch; off by default.
-    Setting<bool> maxwell_compute_cadence_30hz{linkage, false, "maxwell_compute_cadence_30hz",
-                                               Category::Debugging};
+    // GPU Logging
     Setting<GpuLogLevel> gpu_log_level{linkage, GpuLogLevel::Off, "gpu_log_level",
                                        Category::Debugging};
     Setting<bool> gpu_log_vulkan_calls{linkage, true, "gpu_log_vulkan_calls", Category::Debugging};
