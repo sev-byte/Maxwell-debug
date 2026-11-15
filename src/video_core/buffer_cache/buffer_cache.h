@@ -172,6 +172,13 @@ std::optional<VideoCore::RasterizerDownloadArea> BufferCache<P>::GetFlushArea(DA
     DAddr device_addr_end_aligned = Common::AlignUp(device_addr + size, Core::DEVICE_PAGESIZE);
     area->start_address = device_addr_start_aligned;
     area->end_address = device_addr_end_aligned;
+    // The traced Skyrim lighting compute shader writes this range. A preflushable
+    // promise from an earlier CPU read must not suppress the download of its new GPU data.
+    if (HasTargetShaderReadFlush(device_addr, size)) {
+        area->preemtive = false;
+        LOG_INFO(HW_GPU, "MAXWELL-PREFLUSH bypass: addr={:#x}, size={:#x}", device_addr, size);
+        return area;
+    }
     if (memory_tracker.IsRegionPreflushable(device_addr, size)) {
         area->preemtive = true;
         return area;
