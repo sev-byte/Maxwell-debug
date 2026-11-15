@@ -9,6 +9,8 @@ Archive size: 237.6 MB
 - Eden.preflushable.log.zip: 2 entries; uncompressed files total 1.6 GB
   - Eden preflushable log/: 0.0 B (compressed 2.0 B)
   - Eden preflushable log/eden_gpu.log: 1.6 GB (compressed 237.6 MB)
+- Companion application log: eden_log_companion.txt: 1 entries; uncompressed files total 16.4 KB
+  - eden_log_companion.txt: 16.4 KB (compressed 16.4 KB)
 
 ## Marker counts
 | Marker | Count |
@@ -26,10 +28,20 @@ Archive size: 237.6 MB
 | Target [SkyrimBarrierProbe] events | 705 |
 | [SkyrimBufferAccess] events (all buffers) | 1519112 |
 
-- Text files scanned: 1
-- Text lines scanned: 3,540,084
+- Text files scanned: 2
+- Text lines scanned: 3,540,194
 - Lines with UTF-8 replacement characters: 0
 - wall_ms timestamps found: 3,532,832; min=1794774869900; max=1794774940914
+
+## Companion application-log check
+- File: eden_log_companion.txt
+- Size: 16.4 KB
+- Lines scanned: 110
+- Application-log elapsed timestamps: 0.001041s to 0.147786s (span 0.146745s)
+- Target-match messages: 0
+- Target SSBO-write messages: 0
+- Preflush-bypass messages: 0
+- Assessment: this is only a short startup fragment, not a runtime capture of the 32.951-second GPU trace. It cannot establish whether the target preflush code ran.
 
 ## Address/range comparison
 - Unique target write address/size pairs: 0
@@ -58,9 +70,9 @@ For each target-shader CB0 snapshot, the scanner decoded the 16 bytes at the res
   - vertex_read: 733460
 
 ## Interpretation
-The GPU log confirms repeated direct 320x6x1 dispatch records for shader 0x4577aed68dd75ecc and a writable SSBO resource declaration (binding 0, cbuf 0, offset 784). The three MAXWELL-PREFLUSH strings are ordinary LOG_INFO messages, not GPULogger records; this ZIP contains only eden_gpu.log. Their absence here therefore cannot show that the selection/write/bypass code failed. The GPU log proves the target workload and writable SSBO are present, but the ordinary application log (eden_log.txt) is needed to confirm whether the targeted LOG_INFO write and read-bypass messages actually fired.
+The supplied companion application log has only 110 lines and spans 0.146745 seconds of startup. It contains no MAXWELL-PREFLUSH markers and does not cover the runtime interval represented by the GPU trace. It therefore cannot establish whether the target SSBO was marked or whether a CPU read reached the bypass.
 
-The user-reported visual outcome for this capture was no visible change. The GPU log contains workload/resource events; LOG_INFO preflush messages are written via the separate ordinary application logging backend and are not present in this ZIP.
+The user-reported visual outcome for this capture was no visible change. The GPU log contains workload/resource events; targeted preflush LOG_INFO messages are expected in the companion ordinary application log.
 
 ## Shader match samples
 - No matching lines found.
