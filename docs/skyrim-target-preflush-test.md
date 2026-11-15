@@ -115,3 +115,21 @@ This is intentionally a broad A/B test of the compute-buffer route, not a comple
 5. Record whether the flicker changes, disappears, or remains identical. A visual change would support a compute-SSBO readback/preflush contribution; no change would weaken that route but would not exclude storage-image or graphics/volumetric paths.
 
 The next investigation should separately trace writable compute images and volumetric-related shaders. Do not describe those resource types as covered by build #126.
+
+
+### Build failure and Debug-settings audit — 15 November 2026
+
+Build #126 failed during C++ compilation in `vk_rasterizer.cpp`: two callers still referenced the old method name `HasTargetShaderReadFlush` after the buffer-cache API and range tracker had been widened to compute SSBOs. The compiler identified both stale references and suggested `HasComputeShaderReadFlush`. Both callers were corrected in commit `cacd278bbdb1f12ca8ff5bfdaa1f052e8351fc83`.
+
+The Debug UI was checked across the complete registration path:
+- Native config declares `maxwell_disable_light_preflush` as `SwitchableSetting<bool>`.
+- Android `BooleanSetting` uses the exact same key.
+- `SettingsItem.settingsItems` contains a normal `SwitchSetting` row for that key.
+- All three string resources used by the row and section header exist.
+- `SettingsActivity` loads the selected game's custom config and sets `SettingsViewModel.game` before building the settings navigation graph.
+- The Debug presenter includes this row only when `settingsViewModel.game != null`, so it is absent from global Debug and appears in a game's own Debug settings.
+- The standard switch click handler only writes the setting, refreshes the row/list, and does not request navigation.
+
+Commit `6ef4259e6d5515cabda3c7424e2b2e86d7629f23` includes the per-game-only UI condition. This is a source-level audit; the settings screen has not been exercised on a device in this session. If it still exits unexpectedly, preserve the matching `eden_log.txt` from that launch so the navigation/crash can be distinguished from the build issue.
+
+Build #127 includes the rasterizer caller fix; build #128 includes both the caller fix and the per-game-only Debug UI condition.
