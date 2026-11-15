@@ -39,17 +39,19 @@ The three checks answer:
 
 A missing message is useful evidence too; it tells us which part of the path was not reached.
 
-## Companion file still required
+## Companion application log: supplied file is incomplete
 
-The uploaded archive contains only `eden_gpu.log`. The preflush diagnostics beginning with `MAXWELL-PREFLUSH` are emitted through Eden's ordinary `LOG_INFO` logger, which writes to the separate file `eden_log.txt`, not to `eden_gpu.log`.
+The supplied `eden_log(5).txt` is stored in the branch as [`eden_log_companion.txt`](eden_log_companion.txt).
 
-**Please attach `eden_log.txt` from the same test session as a second asset to this release:**
+It contains only 110 lines (16,780 bytes), with elapsed timestamps from 0.001041s to 0.147786s. The lines cover initial UDP setup and NCA key-generation/decryption errors. It does not contain any `MAXWELL-PREFLUSH` messages or the runtime period of the GPU capture.
 
-[Open the published preflush capture release](https://github.com/sev-byte/Maxwell-debug/releases/tag/preflush-capture-2026-11-15)
+This is a startup fragment, not the full application log from the same test session. Its missing markers do not prove the bypass failed.
 
-We need this file to verify:
-- whether the exact target shader dispatch was selected;
-- whether its SSBO output was marked (expected CPU-side range start `0x7491000`, size `6553600`);
-- whether a CPU read actually triggered the preflush bypass.
+**Still needed:** the complete `eden_log.txt` from the same test session as the GPU capture, including the runtime period. The GitHub Actions workflow now scans the supplied fragment and will state its time coverage explicitly.
 
-The GPU-only capture already confirms 705 direct target dispatches and 705 writes to the same storage-buffer window. The missing ordinary log is the remaining evidence needed to tell whether the bypass itself was reached.
+We need:
+- `MAXWELL-PREFLUSH matched target lighting compute shader`
+- `MAXWELL-PREFLUSH target SSBO write` — expected CPU-side range start `0x7491000`, size `6553600`
+- `MAXWELL-PREFLUSH bypass` — whether a CPU read actually triggered the preflush bypass
+
+The GPU-only capture already confirms 705 direct target dispatches and 705 writes to the same storage-buffer window. The full ordinary application log is still required to know whether the bypass itself was reached.
