@@ -133,3 +133,16 @@ The Debug UI was checked across the complete registration path:
 Commit `6ef4259e6d5515cabda3c7424e2b2e86d7629f23` includes the per-game-only UI condition. This is a source-level audit; the settings screen has not been exercised on a device in this session. If it still exits unexpectedly, preserve the matching `eden_log.txt` from that launch so the navigation/crash can be distinguished from the build issue.
 
 Build #127 includes the rasterizer caller fix; build #128 includes both the caller fix and the per-game-only Debug UI condition.
+
+
+### Corrected ARM64 build — build #128 successful
+
+- Workflow: https://github.com/sev-byte/Maxwell-debug/actions/runs/43767545164
+- Source commit built: `6ef4259e6d5515cabda3c7424e2b2e86d7629f23`
+- Result: complete success, including ARM64 compilation and APK artifact upload
+- Artifact: `eden-maxwell-issue-tracking-arm64`
+- Artifact ID: `14182984894`
+- Artifact archive size: 23,449,433 bytes
+- Artifact expiry: 29 November 2026, 22:25 UTC
+
+The APK contains the corrected compute-wide preflush path and the per-game-only Debug UI row. The build itself validates compilation and packaging; the Settings screen navigation behaviour still needs confirmation on the user's device.
