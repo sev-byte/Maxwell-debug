@@ -956,10 +956,25 @@ bool RasterizerVulkan::MustFlushRegion(DAddr addr, u64 size, VideoCommon::CacheT
     return false;
 }
 
+bool RasterizerVulkan::ShouldBypassCPUReadAreaCache(DAddr addr, u64 size) {
+    if (addr == 0 || size == 0) {
+        return false;
+    }
+    std::scoped_lock lock{buffer_cache.mutex};
+    return buffer_cache.HasTargetShaderReadFlush(addr, size);
+}
+
 VideoCore::RasterizerDownloadArea RasterizerVulkan::GetFlushArea(DAddr addr, u64 size) {
     {
         std::scoped_lock lock{texture_cache.mutex};
         auto area = texture_cache.GetFlushArea(addr, size);
+        if (area) {
+            return *area;
+        }
+    }
+    {
+        std::scoped_lock lock{buffer_cache.mutex};
+        auto area = buffer_cache.GetFlushArea(addr, size);
         if (area) {
             return *area;
         }
