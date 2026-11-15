@@ -27,6 +27,7 @@ PATTERNS = {
 }
 ADDR_RE = re.compile(r"addr\s*=\s*(0x[0-9a-f]+).*?size\s*=\s*(0x[0-9a-f]+)", re.I)
 WALL_RE = re.compile(r"wall_ms\s*=\s*(\d+)", re.I)
+APP_ELAPSED_RE = re.compile(r"^\[\s*(\d+\.\d+)\]")
 CB_RE = re.compile(r"\[SkyrimComputeCB\].*shader=0x4577aed68dd75ecc.*slot=(\d+).*?data=([0-9a-f]+)", re.I)
 BUFFER_ACCESS_RE = re.compile(
     r"\[SkyrimBufferAccess\].*kind=([a-z0-9_]+)\s+buffer_cpu_addr=(0x[0-9a-f]+)\s+"
@@ -53,6 +54,11 @@ def scan_stream(stream, name, counts, samples, ranges, wall):
     try:
         for raw in text:
             line_no += 1
+            if name.startswith("APP:"):
+                ranges["app_log_lines"] += 1
+                elapsed = APP_ELAPSED_RE.match(raw)
+                if elapsed:
+                    ranges["app_elapsed_s"].append(float(elapsed.group(1)))
             if "\ufffd" in raw:
                 replacements += 1
             line = raw.rstrip("\r\n")
@@ -105,12 +111,13 @@ def scan_stream(stream, name, counts, samples, ranges, wall):
     counts["replacement_lines"] += replacements
     counts["files_scanned"] += 1
 
-def inspect_zip(path):
+def inspect_zip(path, app_log=None):
     manifest, counts, samples = [], collections.Counter(), collections.defaultdict(list)
     ranges, wall, notes = {
         "writes": set(), "bypasses": set(), "ssbo_descriptors": set(),
         "dispatch_wall_ms": [], "storage_write_ranges": set(),
         "storage_write_counts": collections.Counter(),
+        "app_elapsed_s": [], "app_log_lines": 0,
     }, [], []
     def walk(zpath, label, depth=0):
         if depth > 2:
@@ -145,10 +152,22 @@ def inspect_zip(path):
         except zipfile.BadZipFile:
             notes.append("Invalid ZIP: " + label)
     walk(path, path.name)
+    if app_log is not None:
+        if app_log.is_file():
+            size = app_log.stat().st_size
+            manifest.append((f"Companion application log: {app_log.name}", 1, size,
+                             [(app_log.name, size, size)]))
+            try:
+                with app_log.open("rb") as stream:
+                    scan_stream(stream, f"APP:{app_log.name}", counts, samples, ranges, wall)
+            except Exception as exc:
+                notes.append(f"Could not scan companion application log: {type(exc).__name__}: {exc}")
+        else:
+            notes.append(f"Companion application log not found: {app_log}")
     return manifest, counts, samples, ranges, wall, notes
 
-def make_report(path):
-    manifest, counts, samples, ranges, wall, notes = inspect_zip(path)
+def make_report(path, app_log=None):
+    manifest, counts, samples, ranges, wall, notes = inspect_zip(path, app_log)
     get = lambda k: counts.get(k, 0)
     writes, bypasses = ranges["writes"], ranges["bypasses"]
     overlap = writes & bypasses
@@ -211,6 +230,22 @@ def make_report(path):
             f"- Text lines scanned: {get('text_lines'):,}",
             f"- Lines with UTF-8 replacement characters: {get('replacement_lines'):,}"]
     if wall: out.append(f"- wall_ms timestamps found: {len(wall):,}; min={min(wall)}; max={max(wall)}")
+    if app_log is not None:
+        elapsed = ranges["app_elapsed_s"]
+        out += ["", "## Companion application-log check",
+                f"- File: {app_log.name}",
+                f"- Size: {human(app_log.stat().st_size) if app_log.is_file() else 'missing'}",
+                f"- Lines scanned: {ranges['app_log_lines']}"]
+        if elapsed:
+            out.append(f"- Application-log elapsed timestamps: {min(elapsed):.6f}s to {max(elapsed):.6f}s "
+                       f"(span {max(elapsed) - min(elapsed):.6f}s)")
+        out += [f"- Target-match messages: {get('shader_match')}",
+                f"- Target SSBO-write messages: {get('ssbo_write')}",
+                f"- Preflush-bypass messages: {get('bypass')}"]
+        if not any(get(k) for k in ("shader_match", "ssbo_write", "bypass")) and elapsed and max(elapsed) - min(elapsed) < 1.0:
+            out.append("- Assessment: this is only a short startup fragment, not a runtime capture of the 32.951-second GPU trace. It cannot establish whether the target preflush code ran.")
+        elif not any(get(k) for k in ("shader_match", "ssbo_write", "bypass")):
+            out.append("- Assessment: no preflush markers were found in the supplied application log.")
     out += ["", "## Address/range comparison",
             f"- Unique target write address/size pairs: {len(writes)}",
             f"- Unique bypass address/size pairs: {len(bypasses)}",
@@ -246,8 +281,8 @@ def make_report(path):
         out.append(f"  - {key.removeprefix('buffer_access_')}: {n}")
     out += ["", "## Interpretation", conclusion, "",
             "The user-reported visual outcome for this capture was no visible change. "
-            "The GPU log contains workload/resource events; LOG_INFO preflush messages are written via "
-            "the separate ordinary application logging backend and are not present in this ZIP.", ""]
+            "The GPU log contains workload/resource events; targeted preflush LOG_INFO messages are "
+            "expected in the companion ordinary application log.", ""]
     for key, label in [
         ("shader_match", "Shader match samples"),
         ("ssbo_write", "Target SSBO write samples"),
@@ -274,19 +309,28 @@ def make_report(path):
             "## Scanner notes"]
     out.extend(["- " + x for x in notes] if notes else ["- No archive/parser errors recorded."])
     report = "\n".join(out) + "\n"
+    app_summary = ""
+    if app_log is not None:
+        elapsed = ranges["app_elapsed_s"]
+        span = (f"; app-log time span={max(elapsed) - min(elapsed):.6f}s"
+                if elapsed else "; app-log has no elapsed timestamps")
+        app_summary = (f" Companion app log lines={ranges['app_log_lines']}, "
+                       f"preflush markers match/write/bypass={get('shader_match')}/"
+                       f"{get('ssbo_write')}/{get('bypass')}{span}.")
     summary = (f"Scanned {get('files_scanned')} text files / {get('text_lines'):,} lines. "
                f"Markers match={get('shader_match')}, SSBO-write={get('ssbo_write')}, "
                f"bypass={get('bypass')}; unique write ranges={len(writes)}, bypass ranges={len(bypasses)}, "
-               f"exact intersections={len(overlap)}. {conclusion}")
+               f"exact intersections={len(overlap)}.{app_summary} {conclusion}")
     return report, summary
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--zip", required=True, type=Path)
+    p.add_argument("--app-log", type=Path, default=None)
     p.add_argument("--report", type=Path, default=Path("docs/preflush-bypass-capture-report.md"))
     p.add_argument("--notes", type=Path, default=Path("docs/skyrim-target-preflush-test.md"))
     a = p.parse_args()
-    report, summary = make_report(a.zip)
+    report, summary = make_report(a.zip, a.app_log)
     a.report.parent.mkdir(parents=True, exist_ok=True)
     a.report.write_text(report, encoding="utf-8")
     old = a.notes.read_text(encoding="utf-8") if a.notes.exists() else "# Skyrim target-shader preflush test\n"
