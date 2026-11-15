@@ -1552,8 +1552,12 @@ void BufferCache<P>::MarkWrittenBuffer(BufferId buffer_id, DAddr device_addr, u3
     }
     if (force_target_shader_flush) {
         // Revoke any previous CPU-read preflush promise for this shader's output.
+        const bool was_preflushable = memory_tracker.IsRegionPreflushable(device_addr, size);
         memory_tracker.UnmarkRegionAsPreflushable(device_addr, size);
         target_shader_write_ranges.Add(device_addr, size);
+        LOG_INFO(HW_GPU,
+                 "MAXWELL-PREFLUSH target SSBO write: addr={:#x}, size={:#x}, preflushable_before={}",
+                 device_addr, size, was_preflushable);
     }
     memory_tracker.MarkRegionAsGpuModified(device_addr, size);
     gpu_modified_ranges.Add(device_addr, size);
