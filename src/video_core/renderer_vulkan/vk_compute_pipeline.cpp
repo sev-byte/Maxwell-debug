@@ -173,6 +173,11 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
     const bool target_preflush_dispatch =
         shader_hash == SKYRIM_PREFLUSH_SHADER && !kepler_compute.GetIndirectComputeAddress() &&
         qmd.grid_dim_x == 320 && qmd.grid_dim_y == 6 && qmd.grid_dim_z == 1;
+    if (target_preflush_dispatch) {
+        LOG_INFO(Render_Vulkan,
+                 "MAXWELL-PREFLUSH matched target lighting compute shader {:016X}, dispatch {}x{}x{}",
+                 shader_hash, qmd.grid_dim_x, qmd.grid_dim_y, qmd.grid_dim_z);
+    }
     const auto& cbufs{qmd.const_buffer_config};
 
     // Capture the compute shader's actual constant-buffer inputs. Graphics-only
