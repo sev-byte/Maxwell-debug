@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/inspect-preflush-capture.yml'
       - 'tools/inspect_preflush_capture.py'
+      - 'captures/preflush-bypass/eden_log_companion.txt'
   workflow_dispatch:
 
 permissions:
@@ -39,6 +40,7 @@ jobs:
           set -euo pipefail
           python3 tools/inspect_preflush_capture.py \
             --zip "$RUNNER_TEMP/Eden.preflushable.log.zip" \
+            --app-log captures/preflush-bypass/eden_log_companion.txt \
             --report docs/preflush-bypass-capture-report.md \
             --notes docs/skyrim-target-preflush-test.md
 
