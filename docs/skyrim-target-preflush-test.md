@@ -151,11 +151,11 @@ The APK contains the corrected compute-wide preflush path and the per-game-only 
 
 The user tested successful ARM64 build #128 with **Lighting experiment → Disable light preflushing** enabled in Skyrim's per-game Debug settings before launch. They report that the flickering was unchanged. They also cleared the shader cache and repeated the test with a different graphics driver; neither changed the result.
 
-**Interpretation:** this is a strong visual negative for the broad compute-SSBO preflush/readback hypothesis. The next experiment should not widen the same SSBO intervention again. The result does not rule out writable compute storage images, image-backed resources, graphics-stage writable images/buffers, or other synchronization paths.
+**Interpretation at the time:** this was a strong visual negative for the broad compute-SSBO preflush/readback hypothesis. The follow-up image-cache tests are now documented below and have also been reported unchanged by the user.
 
 **Logging caveat:** no matching runtime `eden_log.txt` has yet been attached for build #128, so the visual result is user-confirmed but the log marker `MAXWELL-PREFLUSH broad compute mode active` has not been independently checked for this session. A matching runtime log would confirm that the switch was read by the running renderer; it is not necessary to repeat the visual A/B test.
 
-### Next investigation — writable storage-image path
+### Writable storage-image path — instrumented in build #129; hypothesis now parked
 
 The source keeps these paths separate:
 
@@ -163,11 +163,11 @@ The source keeps these paths separate:
 - Compute storage images are described by `info.image_descriptors`, resolved through `TextureCache::FillImageViews`, then supplied to image descriptors. They do not pass through the same compute-SSBO range tracker.
 - Graphics stages independently bind storage buffers and writable images through the graphics pipeline configuration path.
 
-The next capture should first **identify and resolve writable storage-image descriptors**, rather than immediately force a global barrier. For each compute or graphics shader, record shader hash/stage, whether the descriptor is written, descriptor source, resolved image-view identity, image type, dimensions/depth, format, subresource range, and the associated GPU/CPU memory range where available. This will establish whether a 3D/volume-like resource is actually written in the flickering scene.
+Build #129 added explicit GPU-write tracking for selected writable compute and graphics storage-image descriptors and routed selected image writes through the image-cache preflush test. The user subsequently reports no visible change from the ambient and volumetric image tests. Do not continue this as an active hypothesis unless a future capture directly demonstrates that an untested image representation is involved.
 
 The earlier shader hash `0x8c0d043b68e7a6d1` was only seen in a shader-compilation record in the earlier capture; it was not dispatched there. Do not label it a volumetric-lighting shader until a runtime dispatch and its writable image binding are observed.
 
-## Ambient and volumetric image-cache preflush tests — next build
+## Ambient and volumetric image-cache preflush tests — build #129 and result
 
 The broad compute-SSBO test was visually unchanged in the user's test after enabling it in Skyrim's per-game Debug settings, clearing the shader cache, and trying another graphics driver. The next experiment keeps that SSBO switch separate and adds two independent image-cache switches:
 
@@ -190,3 +190,25 @@ The image-cache experiment differs from the compute-SSBO test:
 4. Keep the same driver, save, camera, lighting positions, and cache state for each comparison. Record whether flickering changes, reduces, or remains identical.
 
 A positive result would show that a selected image-cache readback path contributes to the symptom; it would not by itself prove the specific shader is ambient or volumetric. A negative result would still need to be checked against the runtime resource trace, especially if the relevant effect uses 2D-array or buffer-backed storage instead of a true 3D image.
+ 
+### Final investigation decision — preflushing parked as a cause, 15 November 2026
+
+The user reports that the preflushing tests produced no change to the Skyrim lighting flicker. Together, the tested routes were:
+
+- **Compute SSBO path:** build #128's broad switch was enabled in Skyrim's per-game Debug settings before launch. The user cleared the shader cache and also repeated the test with a different graphics driver; the flicker remained unchanged.
+- **Ambient image-cache candidate:** build #129's switch targets GPU-written non-3D colour images, including selected writable storage images and render targets. User reports no change.
+- **Volumetric image-cache candidate:** build #129's switch targets GPU-written true 3D colour images, including selected writable storage images. User reports no change.
+
+**Decision:** strike preflushing off the active cause list. Do not spend more cycles widening or tuning the same preflush/readback hypothesis. Retain the switches and instrumentation in the repository as historical test controls, but treat this line of investigation as closed unless new direct evidence points back to it.
+
+Scope caveat: the volumetric selector is based on true 3D colour-image resources; effects represented as 2D arrays, slice atlases, or other non-3D layouts are not semantically identified by that selector. This caveat is not a reason to keep pursuing preflushing speculatively. Reopen only if a future resource trace positively identifies a relevant untested resource or a new reproduction specifically links the flicker to a preflush event.
+
+Build #129 (the image-cache tests) completed successfully:
+- Workflow: https://github.com/sev-byte/Maxwell-debug/actions/runs/43775141925
+- Source commit: `f054a938fcd3010d4886c25afc2b03ac2968e701`
+- Artifact: `eden-maxwell-issue-tracking-arm64`
+- Artifact ID: `14185964903`
+- Size: 23,453,238 bytes
+- Expiry: 29 November 2026, 23:49 UTC
+
+**Next investigation should move away from preflush/readback behaviour.** Keep the broader lighting investigation open, with ambient/volumetric shader execution, resource contents, dispatch/draw cadence, and synchronization/barrier behaviour as separate hypotheses rather than assuming another cache-flush variant is involved.
