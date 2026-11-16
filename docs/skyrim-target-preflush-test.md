@@ -205,3 +205,20 @@ Build #129 (the image-cache tests) completed successfully:
 - Expiry: 29 November 2026, 23:49 UTC
 
 **Next investigation should move away from preflush/readback behaviour.** Keep the broader lighting investigation open, with ambient/volumetric shader execution, resource contents, dispatch/draw cadence, and synchronization/barrier behaviour as separate hypotheses rather than assuming another cache-flush variant is involved.
+
+
+## Follow-up review: cache-miss claim and volumetric lighting — 16 November 2026
+
+The preflush A/B result is unchanged: the user reports no visible improvement from compute-SSBO, ambient-image or volumetric-3D-image preflush switches. This rules down the tested CPU readback/preflush mechanism. It does **not** disprove a GPU-side cache miss, a resource transition/coherency error, or a read-before-write ordering issue.
+
+The prior runtime census has two material instrumentation gaps:
+- `ComputePipeline::Configure` logs SSBO, sampled-texture and storage-image descriptors, but omits `texture_buffer_descriptors` and `image_buffer_descriptors`. `BufferCache::BindTextureBuffer` also does not emit a buffer-access event. A buffer-backed texture/image consumer can therefore be missing from the apparent writer/reader chain.
+- The image trace exports `ImageViewBase::modification_tick` and `invalidation_tick`, but these fields are initialised to zero and not assigned in the inspected implementation. Do not use those zeros to infer that an image was untouched. The underlying `ImageBase::modification_tick` is a separate field.
+
+The image-space volumetric system is confirmed in the Switch executable: GenerateCS → RaymarchCS → BlurHCS → BlurVCS, followed by apply/composite and lens-flare composite passes. It has enable, disable-interior, weather-update, quality, 3D volume dimension and temporal-accumulation controls. However, the chandelier/sconce runtime windows did not show the expected regular compute image descriptors or another compute shader hash; only `0x4577aed68dd75ecc` with an SSBO was recorded. This is strong evidence that the volume compute chain was not configured in those captured interior windows, but not absolute proof of total inactivity because the current logger omits buffer-backed descriptor arrays, does not enumerate every graphics image-space pass, and the runtime interior setting is unknown.
+
+Separately, the private ESM audit resolved the capture cell to `YsgramorsTomb01`: it contains 70 placed point-light references across nine base forms, including multiple candle/torch variants with animation-mask flags and periods from about 0.167 to 0.5 seconds. The `DefaultTorch01NS_NoMove` variant is an important control: its period/amplitude fields are non-zero but its animation-mask bits are clear. This confirms intentional authored point-light modulation exists, but does not explain abnormal popping by itself.
+
+Detailed game-side findings and exact placements are recorded in the private [Skyrim executable/ROMFS inspection report](https://github.com/sev-byte/Skyrim-exefs-romfs/blob/main/INSPECTION.md#11-placed-point-light-records-in-the-captured-interior).
+
+**Current verdict:** preflush/readback is ruled down; general GPU cache miss/coherency is still unproven; the native volumetric pipeline is real but has not been shown active in the flickering indoor capture. Next work should close the descriptor-logging gaps, use the real image modification state, and capture a known volumetric exterior scene before attributing the candle flicker to volumetrics.
