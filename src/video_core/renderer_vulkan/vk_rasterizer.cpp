@@ -537,7 +537,7 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
                                 u64 scheduler_tick) {
     ResetSkyrimCaptureFilesOnce();
 
-    static constexpr size_t MAX_RECORDS = 30000;
+    static constexpr size_t MAX_RECORDS = 60000;
     static constexpr size_t MAX_CAPTURE_BYTES_PER_OBJECT = 0x10000;
     static constexpr size_t MAX_TOTAL_BINARY_BYTES = 64 * 1024 * 1024;
     static constexpr u64 FNV_OFFSET = 1469598103934665603ULL;
@@ -572,16 +572,70 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
         return;
     }
 
+    const auto& draw = engine.draw_manager.draw_state;
+    const auto& regs = engine.regs;
+
+    // Sample each distinct geometry/constant-buffer input set per pipeline and scheduler tick.
+    // A shader pipeline can draw many meshes in one tick, so shader hashes alone are not a
+    // sufficiently specific sampling key for the per-mesh light-buffer investigation.
     u64 pipeline_key = FNV_OFFSET;
     const auto& shader_hashes = pipeline.ShaderHashes();
     for (const u64 hash : shader_hashes) {
         pipeline_key = (pipeline_key ^ hash) * FNV_PRIME;
     }
-    const auto previous = last_sampled_tick.find(pipeline_key);
+
+    u64 draw_key = FNV_OFFSET;
+    const auto mix_draw_key = [&](u64 value) {
+        draw_key = (draw_key ^ value) * FNV_PRIME;
+    };
+    for (size_t stream_index = 0; stream_index < regs.vertex_streams.size(); ++stream_index) {
+        const auto& stream = regs.vertex_streams[stream_index];
+        if (!stream.IsEnabled()) {
+            continue;
+        }
+        mix_draw_key(stream_index);
+        mix_draw_key(static_cast<u64>(stream.Address()));
+        mix_draw_key(stream.stride);
+    }
+    mix_draw_key(is_indexed);
+    if (is_indexed) {
+        mix_draw_key(static_cast<u64>(draw.index_buffer.StartAddress()));
+        mix_draw_key(static_cast<u64>(draw.index_buffer.EndAddress()));
+        mix_draw_key(static_cast<u64>(draw.index_buffer.format));
+        mix_draw_key(draw.index_buffer.first);
+        mix_draw_key(draw.index_buffer.count);
+        mix_draw_key(draw.base_index);
+    } else {
+        mix_draw_key(draw.vertex_buffer.first);
+        mix_draw_key(draw.vertex_buffer.count);
+    }
+    mix_draw_key(draw.base_instance);
+    mix_draw_key(draw.instance_count);
+
+    // Include guest constant-buffer bindings because separate draws of the same geometry
+    // can use different per-object/material data.
+    for (size_t stage = 0; stage < 5; ++stage) {
+        const auto& info = pipeline.ShaderInfo(stage);
+        const auto& cbufs = engine.state.shader_stages[stage].const_buffers;
+        mix_draw_key(stage);
+        mix_draw_key(info.constant_buffer_mask);
+        for (size_t slot = 0; slot < cbufs.size(); ++slot) {
+            const auto& cb = cbufs[slot];
+            if (!cb.enabled || cb.address == 0) {
+                continue;
+            }
+            mix_draw_key(slot);
+            mix_draw_key(static_cast<u64>(cb.address));
+            mix_draw_key(cb.size);
+        }
+    }
+
+    const u64 sample_key = (pipeline_key ^ draw_key) * FNV_PRIME;
+    const auto previous = last_sampled_tick.find(sample_key);
     if (previous != last_sampled_tick.end() && previous->second == scheduler_tick) {
         return;
     }
-    last_sampled_tick[pipeline_key] = scheduler_tick;
+    last_sampled_tick[sample_key] = scheduler_tick;
 
     const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
                       "skyrim_abc_diagnostics.log";
@@ -601,8 +655,6 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
         std::chrono::system_clock::now().time_since_epoch()).count();
     const auto monotonic_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
-    const auto& draw = engine.draw_manager.draw_state;
-    const auto& regs = engine.regs;
     const bool via_header_index = regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding;
 
     file << "ABC_RECORD version=1 wall_ms=" << wall_time_ms
@@ -610,7 +662,8 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
          << " scheduler_tick=" << scheduler_tick
          << " sequence=" << records_written
          << " fragment_shader=0x" << std::hex << pipeline.FragmentShaderHash()
-         << " pipeline_key=0x" << pipeline_key << std::dec
+         << " pipeline_key=0x" << pipeline_key
+         << " draw_key=0x" << draw_key << std::dec
          << " indexed=" << is_indexed
          << " topology=" << topology
          << " vertex_count=" << draw.vertex_buffer.count
