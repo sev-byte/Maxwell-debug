@@ -121,6 +121,10 @@ public:
         return stage_infos[NUM_STAGES - 1];
     }
 
+    [[nodiscard]] const Shader::Info& ShaderInfo(size_t stage) const noexcept {
+        return stage_infos[stage];
+    }
+
     [[nodiscard]] const std::array<u64, 6>& ShaderHashes() const noexcept {
         return key.unique_hashes;
     }
