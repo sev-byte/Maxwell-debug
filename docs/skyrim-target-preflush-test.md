@@ -169,7 +169,7 @@ The earlier shader hash `0x8c0d043b68e7a6d1` was only seen in a shader-compilati
 
 ## Ambient and volumetric image-cache preflush tests — build #129 and result
 
-The broad compute-SSBO test was visually unchanged in the user's test after enabling it in Skyrim's per-game Debug settings, clearing the shader cache, and trying another graphics driver. The next experiment keeps that SSBO switch separate and adds two independent image-cache switches:
+Build #129 kept the compute-SSBO switch separate and added two independent image-cache switches. The user reports that the ambient and volumetric tests produced no visible change to the flickering:
 
 - `maxwell_disable_ambient_preflush`: broad candidate selector for GPU-written, non-3D colour images.
 - `maxwell_disable_volumetric_preflush`: candidate selector for GPU-written true 3D colour images.
@@ -182,14 +182,7 @@ The image-cache experiment differs from the compute-SSBO test:
 - Writable compute and graphics storage-image descriptors are now explicitly marked as GPU-modified when their selected test switch is active. Existing render-target writes were already marked through normal render-target preparation.
 - Both new switches are per-game and off by default. They are independent of the existing compute-SSBO switch.
 
-### Suggested A/B order
-
-1. Leave the SSBO switch off. Enable only **Disable ambient-image preflushing** and retest the exact flickering scene.
-2. Turn ambient off, enable only **Disable volumetric-image preflushing**, and repeat.
-3. Only after the independent tests, enable both image switches together.
-4. Keep the same driver, save, camera, lighting positions, and cache state for each comparison. Record whether flickering changes, reduces, or remains identical.
-
-A positive result would show that a selected image-cache readback path contributes to the symptom; it would not by itself prove the specific shader is ambient or volumetric. A negative result would still need to be checked against the runtime resource trace, especially if the relevant effect uses 2D-array or buffer-backed storage instead of a true 3D image.
+**Result:** no visible change reported. The final investigation decision below supersedes the earlier proposed A/B protocol.
  
 ### Final investigation decision — preflushing parked as a cause, 15 November 2026
 
