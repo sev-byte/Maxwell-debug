@@ -10,6 +10,7 @@ on:
       - skyrim-shader-isolation
       - skyrim-diag-cache-barriers
       - skyrim-diag-shader-inputs
+      - skyrim-tests-abc
       - skyrim-diag-depth-stencil
       - skyrim-diag-sync-renderpass
     paths:
