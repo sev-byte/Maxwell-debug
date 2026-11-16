@@ -8,12 +8,14 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -50,6 +52,8 @@
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
 #include "video_core/shader_cache.h"
 #include "video_core/texture_cache/texture_cache_base.h"
+#include "video_core/texture_cache/texture_cache.h"
+#include "video_core/textures/texture.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 
@@ -58,6 +62,7 @@ namespace Vulkan {
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 using VideoCommon::ImageViewId;
 using VideoCommon::ImageViewType;
+using Tegra::Texture::TexturePair;
 
 
 namespace {
@@ -78,7 +83,8 @@ void ResetSkyrimCaptureFilesOnce() {
             fmt::format("=== Skyrim diagnostic session started wall_ms={} monotonic_ms={} ===\n",
                         wall_ms, monotonic_ms);
         for (const char* name : {"skyrim_gpu_events.log", "skyrim_compute_events.log",
-                                 "skyrim_pipeline_diagnostic.txt"}) {
+                                 "skyrim_pipeline_diagnostic.txt", "skyrim_abc_diagnostics.log",
+                                 "skyrim_abc_buffers.bin"}) {
             std::ofstream file(directory / name, std::ios::out | std::ios::trunc);
             if (file.is_open()) {
                 file << session_header;
@@ -518,6 +524,467 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
     if (file.good()) {
         ++lines_written;
     }
+
+// Focused Test A/B/C capture. One sample is written per pipeline per scheduler tick,
+// so the log follows changes over time without exploding to one line per draw.
+template <typename Runs>
+void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
+                                const Tegra::Engines::Maxwell3D& engine,
+                                const Tegra::MemoryManager& memory,
+                                bool is_indexed,
+                                u32 topology,
+                                const Runs& runs,
+                                u64 scheduler_tick) {
+    ResetSkyrimCaptureFilesOnce();
+
+    static constexpr size_t MAX_RECORDS = 30000;
+    static constexpr size_t MAX_CAPTURE_BYTES_PER_OBJECT = 0x10000;
+    static constexpr size_t MAX_TOTAL_BINARY_BYTES = 64 * 1024 * 1024;
+    static constexpr u64 FNV_OFFSET = 1469598103934665603ULL;
+    static constexpr u64 FNV_PRIME = 1099511628211ULL;
+
+    struct PayloadHeader {
+        u32 magic;
+        u32 version;
+        u64 sequence;
+        u64 gpu_address;
+        u64 content_hash;
+        u32 declared_size;
+        u32 captured_size;
+        u32 kind;   // 1 = constant buffer, 2 = storage buffer
+        u32 stage;
+        u32 slot;   // CB slot or SSBO binding index
+        u32 reserved;
+    };
+    static_assert(sizeof(PayloadHeader) == 56);
+    static_assert(std::is_trivially_copyable_v<PayloadHeader>);
+
+    static std::mutex mutex;
+    static std::unordered_map<u64, u64> last_sampled_tick;
+    static std::unordered_set<u64> captured_payloads;
+    static size_t records_written = 0;
+    static size_t binary_bytes_written = 0;
+    static u64 payload_sequence = 0;
+    static bool binary_limit_reached = false;
+
+    std::scoped_lock lock{mutex};
+    if (records_written >= MAX_RECORDS) {
+        return;
+    }
+
+    u64 pipeline_key = FNV_OFFSET;
+    const auto& shader_hashes = pipeline.ShaderHashes();
+    for (const u64 hash : shader_hashes) {
+        pipeline_key = (pipeline_key ^ hash) * FNV_PRIME;
+    }
+    const auto previous = last_sampled_tick.find(pipeline_key);
+    if (previous != last_sampled_tick.end() && previous->second == scheduler_tick) {
+        return;
+    }
+    last_sampled_tick[pipeline_key] = scheduler_tick;
+
+    const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
+                      "skyrim_abc_diagnostics.log";
+    const auto binary_path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
+                             "skyrim_abc_buffers.bin";
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) {
+        return;
+    }
+    std::ofstream file(path, std::ios::app);
+    if (!file.is_open()) {
+        return;
+    }
+
+    const auto wall_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto monotonic_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const auto& draw = engine.draw_manager.draw_state;
+    const auto& regs = engine.regs;
+    const bool via_header_index = regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding;
+
+    file << "ABC_RECORD version=1 wall_ms=" << wall_time_ms
+         << " monotonic_ms=" << monotonic_time_ms
+         << " scheduler_tick=" << scheduler_tick
+         << " sequence=" << records_written
+         << " fragment_shader=0x" << std::hex << pipeline.FragmentShaderHash()
+         << " pipeline_key=0x" << pipeline_key << std::dec
+         << " indexed=" << is_indexed
+         << " topology=" << topology
+         << " vertex_count=" << draw.vertex_buffer.count
+         << " index_count=" << draw.index_buffer.count
+         << " instance_count=" << draw.instance_count
+         << " runs=" << runs.size() << "\n";
+
+    file << "  shader_hashes=";
+    for (const u64 hash : shader_hashes) {
+        file << "0x" << std::hex << hash << ",";
+    }
+    file << std::dec << "\n";
+
+    const auto capture_payload = [&](u32 kind, size_t stage, size_t slot, GPUVAddr gpu_address,
+                                     u64 declared_size, const std::vector<u8>& bytes) {
+        u64 hash = FNV_OFFSET;
+        for (const u8 byte : bytes) {
+            hash = (hash ^ byte) * FNV_PRIME;
+        }
+
+        const u64 dedupe_key =
+            hash ^ (static_cast<u64>(kind) << 60) ^
+            (static_cast<u64>(stage) << 52) ^ (static_cast<u64>(slot) << 44);
+        bool saved = false;
+        if (!binary_limit_reached && captured_payloads.insert(dedupe_key).second) {
+            const size_t record_size = sizeof(PayloadHeader) + bytes.size();
+            if (binary_bytes_written + record_size <= MAX_TOTAL_BINARY_BYTES) {
+                std::ofstream binary(binary_path, std::ios::binary | std::ios::app);
+                if (binary.is_open()) {
+                    const PayloadHeader header{
+                        .magic = 0x41424353, // "SCBA" in the binary file's little-endian byte order
+                        .version = 1,
+                        .sequence = ++payload_sequence,
+                        .gpu_address = gpu_address,
+                        .content_hash = hash,
+                        .declared_size = static_cast<u32>(declared_size),
+                        .captured_size = static_cast<u32>(bytes.size()),
+                        .kind = kind,
+                        .stage = static_cast<u32>(stage),
+                        .slot = static_cast<u32>(slot),
+                        .reserved = 0,
+                    };
+                    binary.write(reinterpret_cast<const char*>(&header), sizeof(header));
+                    binary.write(reinterpret_cast<const char*>(bytes.data()),
+                                 static_cast<std::streamsize>(bytes.size()));
+                    binary.flush();
+                    saved = binary.good();
+                    if (saved) {
+                        binary_bytes_written += record_size;
+                    }
+                }
+            } else {
+                binary_limit_reached = true;
+            }
+            if (!saved) {
+                captured_payloads.erase(dedupe_key);
+            }
+        }
+        return std::pair<u64, bool>{hash, saved};
+    };
+
+    const auto log_tic = [&](const char* kind, size_t descriptor_index, size_t element_index,
+                             u32 cbuf_index, u32 cbuf_offset, u32 raw_handle,
+                             bool include_sampler) {
+        const TexturePair pair(raw_handle, via_header_index);
+        file << "  descriptor kind=" << kind
+             << " descriptor_index=" << descriptor_index
+             << " element=" << element_index
+             << " cbuf_index=" << cbuf_index
+             << " cbuf_offset=" << cbuf_offset
+             << " raw_handle=0x" << std::hex << raw_handle
+             << " tic_index=0x" << pair.first
+             << " tsc_index=0x" << pair.second;
+        if (raw_handle == 0 || pair.first > regs.tex_header.limit) {
+            file << " resolution=zero_or_out_of_range\n" << std::dec;
+            return;
+        }
+
+        const auto tic = engine.GetTICEntry(pair.first);
+        file << " tic_gpu_address=0x" << tic.Address()
+             << " tic_format=" << std::dec << static_cast<u32>(tic.format.Value())
+             << " tic_texture_type=" << static_cast<u32>(tic.texture_type.Value())
+             << " tic_width=" << (tic.width_minus_one.Value() + 1)
+             << " tic_height=" << (tic.height_minus_1.Value() + 1)
+             << " tic_depth=" << (tic.depth_minus_1.Value() + 1)
+             << " tic_max_mip=" << tic.max_mip_level.Value()
+             << " tic_header_version=" << static_cast<u32>(tic.header_version.Value())
+             << " tic_raw=";
+        for (const u64 word : tic.raw) {
+            file << "0x" << std::hex << word << ",";
+        }
+        if (include_sampler && pair.second <= regs.tex_sampler.limit) {
+            const auto tsc = engine.GetTSCEntry(pair.second);
+            file << " tsc_raw=";
+            for (const u64 word : tsc.raw) {
+                file << "0x" << std::hex << word << ",";
+            }
+        }
+        file << std::dec << "\n";
+    };
+
+    for (size_t stage = 0; stage < 5; ++stage) {
+        const auto& info = pipeline.ShaderInfo(stage);
+        const auto& cbufs = engine.state.shader_stages[stage].const_buffers;
+        file << "  stage=" << stage
+             << " shader_hash=0x" << std::hex << shader_hashes[stage + 1] << std::dec
+             << " constant_buffer_mask=0x" << std::hex << info.constant_buffer_mask << std::dec
+             << " ssbo_descriptors=" << info.storage_buffers_descriptors.size()
+             << " texture_buffer_descriptors=" << info.texture_buffer_descriptors.size()
+             << " image_buffer_descriptors=" << info.image_buffer_descriptors.size()
+             << " texture_descriptors=" << info.texture_descriptors.size()
+             << " image_descriptors=" << info.image_descriptors.size() << "\n";
+
+        // Test A: preserve the actual guest constant-buffer payloads used by this shader stage.
+        // CB2 is also sampled explicitly because the prior investigation singled out offsets 32/40.
+        for (size_t slot = 0; slot < Shader::Info::MAX_CBUFS; ++slot) {
+            const bool used = ((info.constant_buffer_mask >> slot) & 1U) != 0;
+            if (!used && slot != 2 && slot != 5) {
+                continue;
+            }
+            const auto& cb = cbufs[slot];
+            if (!cb.enabled || cb.address == 0 || cb.size == 0) {
+                file << "  cb stage=" << stage << " slot=" << slot
+                     << " used=" << used << " enabled=" << cb.enabled
+                     << " gpu_address=0x" << std::hex << cb.address << std::dec
+                     << " size=" << cb.size << " unavailable=1\n";
+                continue;
+            }
+
+            const size_t capture_size = std::min<size_t>(cb.size, MAX_CAPTURE_BYTES_PER_OBJECT);
+            std::vector<u8> bytes(capture_size);
+            memory.ReadBlockUnsafe(cb.address, bytes.data(), bytes.size());
+            const auto [content_hash, saved] =
+                capture_payload(1, stage, slot, cb.address, cb.size, bytes);
+            file << "  cb stage=" << stage << " slot=" << slot
+                 << " used=" << used
+                 << " gpu_address=0x" << std::hex << cb.address
+                 << " content_hash=0x" << content_hash << std::dec
+                 << " size=" << cb.size
+                 << " captured_size=" << capture_size
+                 << " blob_new=" << saved;
+            if (capture_size < cb.size) {
+                file << " truncated=1";
+            }
+            if (slot == 2 && cb.size >= 48) {
+                const u64 descriptor_32 = memory.Read<u64>(cb.address + 32);
+                const u64 descriptor_40 = memory.Read<u64>(cb.address + 40);
+                file << " cb2_offset32=0x" << std::hex << descriptor_32
+                     << " cb2_offset40=0x" << descriptor_40 << std::dec;
+            }
+            if (slot == 5 && cb.size >= 92) {
+                float value_80 = 0.0f;
+                float value_84 = 0.0f;
+                float value_88 = 0.0f;
+                std::memcpy(&value_80, bytes.data() + 80, sizeof(float));
+                std::memcpy(&value_84, bytes.data() + 84, sizeof(float));
+                std::memcpy(&value_88, bytes.data() + 88, sizeof(float));
+                file << " cb5_f80=" << value_80
+                     << " cb5_f84=" << value_84
+                     << " cb5_f88=" << value_88;
+            }
+            file << "\n";
+        }
+
+        // Test A: the storage-buffer descriptor points to a guest descriptor containing
+        // a GPU address and (often) a packed byte size. Mirror BufferCache's resolution logic,
+        // then preserve the first 64 KiB of each unique storage-buffer payload.
+        size_t ssbo_index = 0;
+        for (const auto& desc : info.storage_buffers_descriptors) {
+            if (desc.cbuf_index >= cbufs.size()) {
+                file << "  ssbo stage=" << stage << " binding=" << ssbo_index++
+                     << " invalid_cbuf_index=" << desc.cbuf_index << "\n";
+                continue;
+            }
+            const auto& descriptor_cb = cbufs[desc.cbuf_index];
+            if (!descriptor_cb.enabled || descriptor_cb.address == 0 ||
+                desc.cbuf_offset > descriptor_cb.size ||
+                descriptor_cb.size - desc.cbuf_offset < 16) {
+                file << "  ssbo stage=" << stage << " binding=" << ssbo_index++
+                     << " cbuf_index=" << desc.cbuf_index
+                     << " cbuf_offset=" << desc.cbuf_offset
+                     << " unavailable=1\n";
+                continue;
+            }
+
+            const GPUVAddr descriptor_address = descriptor_cb.address + desc.cbuf_offset;
+            const GPUVAddr storage_gpu_address = memory.Read<u64>(descriptor_address);
+            const u64 next_qword = memory.Read<u64>(descriptor_address + 8);
+            const u64 layout_size = storage_gpu_address == 0
+                                        ? 0
+                                        : memory.GetMemoryLayoutSize(storage_gpu_address);
+            const u32 packed_size = static_cast<u32>(next_qword);
+            const bool next_qword_is_size =
+                static_cast<u32>(next_qword >> 32) == 0 && packed_size != 0 &&
+                packed_size <= layout_size;
+            const u64 resolved_size =
+                next_qword_is_size ? packed_size : std::min<u64>(layout_size, 8 * 1024 * 1024ULL);
+
+            file << "  ssbo stage=" << stage
+                 << " binding=" << ssbo_index++
+                 << " cbuf_index=" << desc.cbuf_index
+                 << " cbuf_offset=" << desc.cbuf_offset
+                 << " declared_count=" << desc.count
+                 << " is_written=" << desc.is_written
+                 << " descriptor_gpu_address=0x" << std::hex << descriptor_address
+                 << " storage_gpu_address=0x" << storage_gpu_address
+                 << " descriptor_qword1=0x" << next_qword << std::dec
+                 << " memory_layout_size=" << layout_size
+                 << " resolved_size=" << resolved_size
+                 << " size_from_descriptor=" << next_qword_is_size;
+
+            if (storage_gpu_address != 0 && resolved_size != 0) {
+                const size_t capture_size =
+                    static_cast<size_t>(std::min<u64>(resolved_size, MAX_CAPTURE_BYTES_PER_OBJECT));
+                std::vector<u8> bytes(capture_size);
+                memory.ReadBlockUnsafe(storage_gpu_address, bytes.data(), bytes.size());
+                const auto [content_hash, saved] =
+                    capture_payload(2, stage, ssbo_index - 1, storage_gpu_address,
+                                    resolved_size, bytes);
+                file << " content_hash=0x" << std::hex << content_hash << std::dec
+                     << " captured_size=" << capture_size
+                     << " blob_new=" << saved;
+                if (capture_size < resolved_size) {
+                    file << " truncated=1";
+                }
+            } else {
+                file << " payload_unavailable=1";
+            }
+            file << "\n";
+        }
+
+        // Test B: classify every shader descriptor by its SPIR-V resource kind and resolve
+        // its guest TIC/TSC indices, raw descriptor words, GPU backing address and dimensions.
+        const auto read_texture_handle = [&](u32 cbuf_index, u32 cbuf_offset, u32 size_shift,
+                                             u32 element, bool has_secondary,
+                                             u32 secondary_cbuf_index, u32 secondary_cbuf_offset,
+                                             u32 secondary_shift_left, u32 shift_left,
+                                             u32& raw_handle) {
+            if (cbuf_index >= cbufs.size() || !cbufs[cbuf_index].enabled ||
+                cbufs[cbuf_index].address == 0) {
+                return false;
+            }
+            const u32 element_offset = element << size_shift;
+            const u32 offset = cbuf_offset + element_offset;
+            if (offset > cbufs[cbuf_index].size ||
+                cbufs[cbuf_index].size - offset < sizeof(u32)) {
+                return false;
+            }
+            const GPUVAddr address = cbufs[cbuf_index].address + offset;
+            const u32 lhs_raw = memory.Read<u32>(address) << shift_left;
+            if (has_secondary) {
+                if (secondary_cbuf_index >= cbufs.size() ||
+                    !cbufs[secondary_cbuf_index].enabled ||
+                    secondary_cbuf_offset + element_offset > cbufs[secondary_cbuf_index].size ||
+                    cbufs[secondary_cbuf_index].size -
+                            (secondary_cbuf_offset + element_offset) < sizeof(u32)) {
+                    return false;
+                }
+                const GPUVAddr secondary_address =
+                    cbufs[secondary_cbuf_index].address + secondary_cbuf_offset + element_offset;
+                const u32 rhs_raw = memory.Read<u32>(secondary_address) << secondary_shift_left;
+                raw_handle = lhs_raw | rhs_raw;
+            } else {
+                raw_handle = lhs_raw;
+            }
+            return true;
+        };
+
+        for (size_t descriptor_index = 0;
+             descriptor_index < info.texture_descriptors.size(); ++descriptor_index) {
+            const auto& desc = info.texture_descriptors[descriptor_index];
+            for (u32 element = 0; element < desc.count; ++element) {
+                u32 raw = 0;
+                if (read_texture_handle(desc.cbuf_index, desc.cbuf_offset, desc.size_shift,
+                                        element, desc.has_secondary, desc.secondary_cbuf_index,
+                                        desc.secondary_cbuf_offset, desc.secondary_shift_left,
+                                        desc.shift_left, raw)) {
+                    log_tic("sampled_image", descriptor_index, element, desc.cbuf_index,
+                            desc.cbuf_offset + (element << desc.size_shift), raw, true);
+                } else {
+                    file << "  descriptor kind=sampled_image descriptor_index="
+                         << descriptor_index << " element=" << element
+                         << " unavailable=1\n";
+                }
+            }
+        }
+
+        for (size_t descriptor_index = 0;
+             descriptor_index < info.texture_buffer_descriptors.size(); ++descriptor_index) {
+            const auto& desc = info.texture_buffer_descriptors[descriptor_index];
+            for (u32 element = 0; element < desc.count; ++element) {
+                u32 raw = 0;
+                if (read_texture_handle(desc.cbuf_index, desc.cbuf_offset, desc.size_shift,
+                                        element, desc.has_secondary, desc.secondary_cbuf_index,
+                                        desc.secondary_cbuf_offset, desc.secondary_shift_left,
+                                        desc.shift_left, raw)) {
+                    log_tic("uniform_texel_buffer", descriptor_index, element, desc.cbuf_index,
+                            desc.cbuf_offset + (element << desc.size_shift), raw, false);
+                } else {
+                    file << "  descriptor kind=uniform_texel_buffer descriptor_index="
+                         << descriptor_index << " element=" << element
+                         << " unavailable=1\n";
+                }
+            }
+        }
+
+        for (size_t descriptor_index = 0;
+             descriptor_index < info.image_descriptors.size(); ++descriptor_index) {
+            const auto& desc = info.image_descriptors[descriptor_index];
+            for (u32 element = 0; element < desc.count; ++element) {
+                u32 raw = 0;
+                if (read_texture_handle(desc.cbuf_index, desc.cbuf_offset, desc.size_shift,
+                                        element, false, 0, 0, 0, 0, raw)) {
+                    log_tic(desc.is_written ? "storage_image_write" : "storage_image_read",
+                            descriptor_index, element, desc.cbuf_index,
+                            desc.cbuf_offset + (element << desc.size_shift), raw, false);
+                } else {
+                    file << "  descriptor kind=storage_image descriptor_index="
+                         << descriptor_index << " element=" << element
+                         << " unavailable=1\n";
+                }
+            }
+        }
+
+        for (size_t descriptor_index = 0;
+             descriptor_index < info.image_buffer_descriptors.size(); ++descriptor_index) {
+            const auto& desc = info.image_buffer_descriptors[descriptor_index];
+            for (u32 element = 0; element < desc.count; ++element) {
+                u32 raw = 0;
+                if (read_texture_handle(desc.cbuf_index, desc.cbuf_offset, desc.size_shift,
+                                        element, false, 0, 0, 0, 0, raw)) {
+                    log_tic(desc.is_written ? "storage_texel_buffer_write"
+                                            : "storage_texel_buffer_read",
+                            descriptor_index, element, desc.cbuf_index,
+                            desc.cbuf_offset + (element << desc.size_shift), raw, false);
+                } else {
+                    file << "  descriptor kind=storage_texel_buffer descriptor_index="
+                         << descriptor_index << " element=" << element
+                         << " unavailable=1\n";
+                }
+            }
+        }
+    }
+
+    // Preserve the mesh-side identifiers needed to tie these resources back to draw geometry.
+    for (size_t i = 0; i < regs.vertex_streams.size(); ++i) {
+        const auto& stream = regs.vertex_streams[i];
+        if (!stream.IsEnabled()) {
+            continue;
+        }
+        file << "  vertex_stream[" << i << "] gpu_address=0x" << std::hex
+             << stream.Address() << std::dec << " stride=" << stream.stride << "\n";
+    }
+    if (is_indexed) {
+        file << "  index_buffer gpu_start=0x" << std::hex
+             << draw.index_buffer.StartAddress() << " index_start=0x"
+             << draw.index_buffer.IndexStart() << " end=0x"
+             << draw.index_buffer.EndAddress() << std::dec
+             << " format=" << static_cast<u32>(draw.index_buffer.format)
+             << " first=" << draw.index_buffer.first
+             << " count=" << draw.index_buffer.count << "\n";
+    }
+    for (size_t i = 0; i < runs.size(); ++i) {
+        file << "  attribute_run[" << i << "] first=" << runs[i].first
+             << " count=" << runs[i].count << " handle=0x" << std::hex
+             << runs[i].handle << std::dec << "\n";
+    }
+
+    file.flush();
+    if (file.good()) {
+        ++records_written;
+    }
+}
+
 }} // Anonymous namespace
 
 RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra::GPU& gpu_,
@@ -589,6 +1056,9 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     CaptureSkyrimPipelineDiagnostic(*pipeline, *maxwell3d, is_indexed,
                                      static_cast<u32>(maxwell3d->draw_manager.draw_state.topology),
                                      attribute_handle_runs);
+    CaptureSkyrimAbcDiagnostic(*pipeline, *maxwell3d, *gpu_memory, is_indexed,
+                                static_cast<u32>(maxwell3d->draw_manager.draw_state.topology),
+                                attribute_handle_runs, scheduler.CurrentTick());
     if (!pipeline->Configure(is_indexed))
         return;
 
