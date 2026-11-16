@@ -21,6 +21,8 @@ of the guest storage-buffer payload.
 The output also records vertex-stream/index-buffer addresses and draw arguments so a payload
 can be associated with the mesh draw that referenced it.
 
+Samples are de-duplicated per pipeline, geometry-buffer set, and constant-buffer binding set within a scheduler tick. This keeps separate meshes that reuse the same shader pipeline from collapsing into one sample. The capture is capped at 60,000 diagnostic records and 64 MiB of raw payloads per emulator process.
+
 This does not label a buffer as a "light list" automatically. That semantic identification is the
 offline reverse-engineering step; the build preserves the bytes and descriptor provenance needed
 to establish it.
