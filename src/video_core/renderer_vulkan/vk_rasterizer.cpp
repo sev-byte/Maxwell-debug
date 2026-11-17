@@ -729,7 +729,7 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
     const auto log_tic = [&](const char* kind, size_t descriptor_index, size_t element_index,
                              u32 cbuf_index, u32 cbuf_offset, u32 raw_handle,
                              bool include_sampler) {
-        const TexturePair pair(raw_handle, via_header_index);
+        const auto pair = Tegra::Texture::TexturePair(raw_handle, via_header_index);
         file << "  descriptor kind=" << kind
              << " descriptor_index=" << descriptor_index
              << " element=" << element_index
@@ -743,7 +743,10 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
             return;
         }
 
-        const auto tic = engine.GetTICEntry(pair.first);
+        Tegra::Texture::TICEntry tic{};
+        const GPUVAddr tic_address = regs.tex_header.Address() +
+                                     static_cast<GPUVAddr>(pair.first) * sizeof(tic);
+        memory.ReadBlockUnsafe(tic_address, &tic, sizeof(tic));
         file << " tic_gpu_address=0x" << tic.Address()
              << " tic_format=" << std::dec << static_cast<u32>(tic.format.Value())
              << " tic_texture_type=" << static_cast<u32>(tic.texture_type.Value())
@@ -757,7 +760,10 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
             file << "0x" << std::hex << word << ",";
         }
         if (include_sampler && pair.second <= regs.tex_sampler.limit) {
-            const auto tsc = engine.GetTSCEntry(pair.second);
+            Tegra::Texture::TSCEntry tsc{};
+            const GPUVAddr tsc_address = regs.tex_sampler.Address() +
+                                         static_cast<GPUVAddr>(pair.second) * sizeof(tsc);
+            memory.ReadBlockUnsafe(tsc_address, &tsc, sizeof(tsc));
             file << " tsc_raw=";
             for (const u64 word : tsc.raw) {
                 file << "0x" << std::hex << word << ",";
@@ -1039,7 +1045,7 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
     }
 }
 
-}} // Anonymous namespace
+} // Anonymous namespace
 
 RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra::GPU& gpu_,
                                    Tegra::MaxwellDeviceMemoryManager& device_memory_,
