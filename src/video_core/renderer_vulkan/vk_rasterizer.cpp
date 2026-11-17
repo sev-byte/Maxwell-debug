@@ -250,9 +250,10 @@ bool IsPrimitiveRestartSupported(const Device& device, VkPrimitiveTopology topol
  // hashes=0x1234,0x5678
  // Changes are read once per emulator process; restart Eden after editing.
 bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
-    // Diagnostic builds must never suppress guest shaders, regardless of stale config files.
-    (void)shader_hash;
-    return false;
+    // Global diagnostic blacklist: suppress every draw using this fragment shader,
+    // regardless of its vertex shader or the scene in which it appears.
+    constexpr u64 BLACKLISTED_FRAGMENT_SHADER = 0x8b6638a17bd01fc0ULL;
+    return shader_hash == BLACKLISTED_FRAGMENT_SHADER;
 }
 
 void LogSkippedSkyrimShader(u64 shader_hash, const Tegra::Engines::Maxwell3D& engine) {
