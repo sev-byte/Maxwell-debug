@@ -245,10 +245,8 @@ bool IsPrimitiveRestartSupported(const Device& device, VkPrimitiveTopology topol
              device.IsPatchListPrimitiveRestartSupported()));
 }
 
-// Optional Skyrim fragment-shader isolation. Configure in the dump directory with:
- // mode=disabled | blocklist | allowlist
- // hashes=0x1234,0x5678
- // Changes are read once per emulator process; restart Eden after editing.
+// Global Skyrim fragment-shader blacklist for the current diagnostic build.
+// Every draw using the selected fragment hash is skipped, across all pipelines and scenes.
 bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
     // Global diagnostic blacklist: suppress every draw using this fragment shader,
     // regardless of its vertex shader or the scene in which it appears.
