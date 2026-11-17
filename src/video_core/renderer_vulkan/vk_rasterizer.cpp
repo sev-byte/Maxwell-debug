@@ -524,6 +524,7 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
     if (file.good()) {
         ++lines_written;
     }
+}
 
 // Focused Test A/B/C capture. One sample is written per pipeline per scheduler tick,
 // so the log follows changes over time without exploding to one line per draw.
