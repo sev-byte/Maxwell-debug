@@ -283,7 +283,6 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
     ResetSkyrimCaptureFilesOnce();
     constexpr u64 TARGET_SHADER_HASH = 0xde45de8572884068ULL;
     constexpr size_t MAX_BUFFER_SIZE = 0x10000;
-    constexpr size_t MAX_CAPTURE_FILE_SIZE = 16 * 1024 * 1024;
     constexpr std::array<size_t, 2> BUFFER_INDICES{5, 15};
     if (fragment_shader_hash != TARGET_SHADER_HASH) {
         return;
@@ -303,7 +302,6 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
     static std::mutex mutex;
     static std::unordered_set<u64> captured;
     static u64 sequence = 0;
-    static size_t bytes_written = 0;
     static bool capture_file_initialized = false;
 
     std::array<std::vector<u8>, 2> contents;
@@ -354,11 +352,6 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
         }
         reset_file.close();
         capture_file_initialized = true;
-        bytes_written = 0;
-    }
-    const size_t record_size = sizeof(RecordHeader) + contents[0].size() + contents[1].size();
-    if (error || bytes_written + record_size > MAX_CAPTURE_FILE_SIZE) {
-        return;
     }
 
     header.sequence = ++sequence;
@@ -376,7 +369,6 @@ void CaptureSkyrimLightBuffers(u64 fragment_shader_hash,
         return;
     }
     captured.insert(pair_hash);
-    bytes_written += record_size;
 }
 
 void CaptureSkyrimDrawEvent(const GraphicsPipeline& pipeline, const char* event_name,
@@ -441,11 +433,9 @@ void CaptureSkyrimPipelineDiagnostic(const GraphicsPipeline& pipeline,
                                      const Runs& runs) {
     ResetSkyrimCaptureFilesOnce();
     // Capture renderer-visible inputs for every fragment shader, not just the former candidate.
-    static constexpr size_t MAX_DIAGNOSTIC_LINES = 12000;
     static std::mutex mutex;
     static size_t lines_written = 0;
     std::scoped_lock lock{mutex};
-    if (lines_written >= MAX_DIAGNOSTIC_LINES) return;
     const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
                       "skyrim_pipeline_diagnostic.txt";
     std::error_code error;
@@ -537,9 +527,7 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
                                 u64 scheduler_tick) {
     ResetSkyrimCaptureFilesOnce();
 
-    static constexpr size_t MAX_RECORDS = 60000;
     static constexpr size_t MAX_CAPTURE_BYTES_PER_OBJECT = 0x10000;
-    static constexpr size_t MAX_TOTAL_BINARY_BYTES = 64 * 1024 * 1024;
     static constexpr u64 FNV_OFFSET = 1469598103934665603ULL;
     static constexpr u64 FNV_PRIME = 1099511628211ULL;
 
@@ -563,15 +551,9 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
     static std::unordered_map<u64, u64> last_sampled_tick;
     static std::unordered_set<u64> captured_payloads;
     static size_t records_written = 0;
-    static size_t binary_bytes_written = 0;
     static u64 payload_sequence = 0;
-    static bool binary_limit_reached = false;
 
     std::scoped_lock lock{mutex};
-    if (records_written >= MAX_RECORDS) {
-        return;
-    }
-
     const auto& draw = engine.draw_manager.draw_state;
     const auto& regs = engine.regs;
 
@@ -688,35 +670,27 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
             hash ^ (static_cast<u64>(kind) << 60) ^
             (static_cast<u64>(stage) << 52) ^ (static_cast<u64>(slot) << 44);
         bool saved = false;
-        if (!binary_limit_reached && captured_payloads.insert(dedupe_key).second) {
-            const size_t record_size = sizeof(PayloadHeader) + bytes.size();
-            if (binary_bytes_written + record_size <= MAX_TOTAL_BINARY_BYTES) {
-                std::ofstream binary(binary_path, std::ios::binary | std::ios::app);
-                if (binary.is_open()) {
-                    const PayloadHeader header{
-                        .magic = 0x41424353, // "SCBA" in the binary file's little-endian byte order
-                        .version = 1,
-                        .sequence = ++payload_sequence,
-                        .gpu_address = gpu_address,
-                        .content_hash = hash,
-                        .declared_size = static_cast<u32>(declared_size),
-                        .captured_size = static_cast<u32>(bytes.size()),
-                        .kind = kind,
-                        .stage = static_cast<u32>(stage),
-                        .slot = static_cast<u32>(slot),
-                        .reserved = 0,
-                    };
-                    binary.write(reinterpret_cast<const char*>(&header), sizeof(header));
-                    binary.write(reinterpret_cast<const char*>(bytes.data()),
-                                 static_cast<std::streamsize>(bytes.size()));
-                    binary.flush();
-                    saved = binary.good();
-                    if (saved) {
-                        binary_bytes_written += record_size;
-                    }
-                }
-            } else {
-                binary_limit_reached = true;
+        if (captured_payloads.insert(dedupe_key).second) {
+            std::ofstream binary(binary_path, std::ios::binary | std::ios::app);
+            if (binary.is_open()) {
+                const PayloadHeader header{
+                    .magic = 0x41424353, // "SCBA" in the binary file's little-endian byte order
+                    .version = 1,
+                    .sequence = ++payload_sequence,
+                    .gpu_address = gpu_address,
+                    .content_hash = hash,
+                    .declared_size = static_cast<u32>(declared_size),
+                    .captured_size = static_cast<u32>(bytes.size()),
+                    .kind = kind,
+                    .stage = static_cast<u32>(stage),
+                    .slot = static_cast<u32>(slot),
+                    .reserved = 0,
+                };
+                binary.write(reinterpret_cast<const char*>(&header), sizeof(header));
+                binary.write(reinterpret_cast<const char*>(bytes.data()),
+                             static_cast<std::streamsize>(bytes.size()));
+                binary.flush();
+                saved = binary.good();
             }
             if (!saved) {
                 captured_payloads.erase(dedupe_key);
