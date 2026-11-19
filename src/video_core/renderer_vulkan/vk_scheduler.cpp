@@ -418,6 +418,30 @@ void Scheduler::EndRenderPass()
         query_cache->CounterEnable(VideoCommon::QueryType::ZPassPixelCount64, false);
         query_cache->NotifySegment(false);
 
+        // The helper is a no-op for every image except the one registered by the de45 sampler trace.
+        for (size_t i = 0; i < num_renderpass_images; ++i) {
+            const VkImageSubresourceRange& range = renderpass_image_ranges[i];
+            const bool is_color = (range.aspectMask & VK_IMAGE_ASPECT_COLOR_BIT) != 0;
+            const bool is_depth_stencil =
+                (range.aspectMask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0;
+            VkAccessFlags src_access = 0;
+            if (is_color) {
+                src_access |= VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            } else if (is_depth_stencil) {
+                src_access |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            } else {
+                src_access |= VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            }
+            TraceSkyrimImageBarrier(
+                renderpass_images[i], range.aspectMask, src_access,
+                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
+                    VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, CurrentTick());
+        }
+
         Record([num_images = num_renderpass_images,
                        images = renderpass_images,
                        ranges = renderpass_image_ranges,
