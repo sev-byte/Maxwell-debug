@@ -25,6 +25,12 @@ struct ResolutionScalingInfo;
 
 namespace Vulkan {
 
+// Called by the Vulkan scheduler only for the image selected by the de45 trace.
+void TraceSkyrimImageBarrier(VkImage image, VkImageAspectFlags aspects,
+                             VkAccessFlags src_access, VkAccessFlags dst_access,
+                             VkImageLayout old_layout, VkImageLayout new_layout,
+                             u64 scheduler_tick) noexcept;
+
 using Common::SlotVector;
 using VideoCommon::ImageId;
 using VideoCommon::NUM_RT;
