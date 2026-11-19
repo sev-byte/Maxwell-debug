@@ -62,6 +62,8 @@ using VideoCore::Surface::IsPixelFormatSRGB;
 using VideoCore::Surface::SurfaceType;
 
 namespace {
+std::atomic<u64> skyrim_trace_global_image_handle{0};
+
 void WriteSkyrimLightTraceRecord(const char* event, u64 guest_address, u64 image_handle,
                                  u32 width, u32 height, u32 format, u64 shader_hash,
                                  u64 scheduler_tick, u64 modification_tick) noexcept {
@@ -91,6 +93,41 @@ void WriteSkyrimLightTraceRecord(const char* event, u64 guest_address, u64 image
          << " image_modification_tick=" << modification_tick << "\n";
 }
 }
+
+void TraceSkyrimImageBarrier(VkImage image, VkImageAspectFlags aspects,
+                             VkAccessFlags src_access, VkAccessFlags dst_access,
+                             VkImageLayout old_layout, VkImageLayout new_layout,
+                             u64 scheduler_tick) noexcept {
+    const u64 image_handle = static_cast<u64>(reinterpret_cast<std::uintptr_t>(image));
+    if (image_handle == 0 || image_handle != skyrim_trace_global_image_handle.load()) {
+        return;
+    }
+    static std::mutex mutex;
+    std::scoped_lock lock{mutex};
+    const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
+                      "skyrim_light_trace.log";
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) {
+        return;
+    }
+    std::ofstream file(path, std::ios::app);
+    if (!file.is_open()) {
+        return;
+    }
+    const auto wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto monotonic_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    file << "wall_ms=" << wall_ms << " monotonic_ms=" << monotonic_ms
+         << " event=renderpass_image_barrier vk_image=0x" << std::hex << image_handle
+         << " aspects=0x" << aspects << " src_access=0x" << src_access
+         << " dst_access=0x" << dst_access << std::dec
+         << " old_layout=" << static_cast<u32>(old_layout)
+         << " new_layout=" << static_cast<u32>(new_layout)
+         << " scheduler_tick=" << scheduler_tick << "\\n";
+}
+
 constexpr bool ENABLE_MSAA_TILER_RESOLVE = true;
 constexpr bool ENABLE_MSAA_RESOLVE_CONSUME = true;
 constexpr bool ENABLE_MSAA_COLOR_DISCARD = true;
@@ -1903,6 +1940,7 @@ void TextureCacheRuntime::RegisterSkyrimTraceTarget(GPUVAddr guest_address, VkIm
     const u64 image_handle = static_cast<u64>(reinterpret_cast<std::uintptr_t>(image));
     const u64 previous_address = skyrim_trace_guest_address.exchange(guest_address);
     const u64 previous_image = skyrim_trace_image_handle.exchange(image_handle);
+    skyrim_trace_global_image_handle.store(image_handle);
     if (previous_address != guest_address || previous_image != image_handle) {
         skyrim_trace_last_write_tick.store(~u64{0});
         WriteSkyrimLightTraceRecord("target", guest_address, image_handle, width, height,
