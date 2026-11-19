@@ -1,4 +1,5 @@
 name: Build Skyrim Light Buffer Capture APK
+# Rebuild lightweight Skyrim trace after C++ compile fix.
 
 on:
   workflow_dispatch:
