@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <span>
 
 #include "video_core/texture_cache/texture_cache_base.h"
@@ -144,6 +145,17 @@ public:
     }
 
     void BarrierFeedbackLoop();
+
+    // Narrow Skyrim diagnostic: identify the exact image sampled by fragment shader de45
+    // and report only GPU writes targeting that same Vulkan image.
+    void RegisterSkyrimTraceTarget(GPUVAddr guest_address, VkImage image, u32 width, u32 height,
+                                   u32 format, u64 shader_hash, u64 scheduler_tick);
+    void TraceSkyrimImageWrite(const Image& image) noexcept;
+
+    std::atomic<u64> skyrim_trace_guest_address{0};
+    std::atomic<u64> skyrim_trace_image_handle{0};
+    std::atomic<u64> skyrim_trace_last_sample_tick{~u64{0}};
+    std::atomic<u64> skyrim_trace_last_write_tick{~u64{0}};
 
     bool IsFormatDitherable(VideoCore::Surface::PixelFormat format);
     bool IsFormatScalable(VideoCore::Surface::PixelFormat format);
