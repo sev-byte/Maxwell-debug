@@ -79,23 +79,87 @@ void ResetSkyrimCaptureFilesOnce() {
             std::chrono::system_clock::now().time_since_epoch()).count();
         const auto monotonic_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
-        const std::string session_header =
-            fmt::format("=== Skyrim diagnostic session started wall_ms={} monotonic_ms={} ===\n",
+        const std::string header =
+            fmt::format("=== Skyrim light trace started wall_ms={} monotonic_ms={} ===\\n",
                         wall_ms, monotonic_ms);
-        for (const char* name : {"skyrim_gpu_events.log", "skyrim_compute_events.log",
-                                 "skyrim_pipeline_diagnostic.txt", "skyrim_abc_diagnostics.log",
-                                 "skyrim_abc_buffers.bin"}) {
-            std::ofstream file(directory / name, std::ios::out | std::ios::trunc);
-            if (file.is_open()) {
-                file << session_header;
-                file.flush();
-            }
+        std::ofstream file(directory / "skyrim_light_trace.log", std::ios::out | std::ios::trunc);
+        if (file.is_open()) {
+            file << header;
+            file.flush();
         }
-        [[maybe_unused]] std::ofstream light_buffers(
-            directory / "skyrim_light_buffer_capture.bin", std::ios::binary | std::ios::trunc);
     });
 }
 
+
+
+void CaptureSkyrimLightImageSample(const GraphicsPipeline& pipeline,
+                                   const Tegra::Engines::Maxwell3D& engine,
+                                   const Tegra::MemoryManager& memory,
+                                   TextureCache& cache, u64 scheduler_tick) {
+    constexpr u64 TARGET_FRAGMENT_SHADER = 0xde45de8572884068ULL;
+    if (pipeline.FragmentShaderHash() != TARGET_FRAGMENT_SHADER) {
+        return;
+    }
+
+    // Resolve only descriptors referenced by de45. The target image is registered once;
+    // subsequent records are emitted only when this shader actually samples it.
+    cache.SynchronizeDescriptors(false);
+    const auto& info = pipeline.FragmentShaderInfo();
+    const auto& cbufs = engine.state.shader_stages[4].const_buffers;
+    const auto& regs = engine.regs;
+    const bool via_header_index =
+        regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding;
+
+    for (const auto& desc : info.texture_descriptors) {
+        if (desc.cbuf_index >= cbufs.size()) {
+            continue;
+        }
+        const auto& cb = cbufs[desc.cbuf_index];
+        if (!cb.enabled || cb.address == 0) {
+            continue;
+        }
+        for (u32 element = 0; element < desc.count; ++element) {
+            const u32 element_offset = element << desc.size_shift;
+            const u32 offset = desc.cbuf_offset + element_offset;
+            if (offset > cb.size || cb.size - offset < sizeof(u32)) {
+                continue;
+            }
+            const u32 lhs =
+                memory.Read<u32>(cb.address + offset) << desc.shift_left;
+            u32 raw_handle = lhs;
+            if (desc.has_secondary) {
+                if (desc.secondary_cbuf_index >= cbufs.size()) {
+                    continue;
+                }
+                const auto& secondary_cb = cbufs[desc.secondary_cbuf_index];
+                const u32 secondary_offset = desc.secondary_cbuf_offset + element_offset;
+                if (!secondary_cb.enabled || secondary_cb.address == 0 ||
+                    secondary_offset > secondary_cb.size ||
+                    secondary_cb.size - secondary_offset < sizeof(u32)) {
+                    continue;
+                }
+                const u32 rhs = memory.Read<u32>(secondary_cb.address + secondary_offset)
+                                << desc.secondary_shift_left;
+                raw_handle |= rhs;
+            }
+
+            const auto [tic_index, tsc_index] = TexturePair(raw_handle, via_header_index);
+            (void)tsc_index;
+            if (raw_handle == 0 || tic_index > regs.tex_header.limit) {
+                continue;
+            }
+            const auto& image_view = cache.GetImageView(tic_index);
+            if (image_view.size.width != 400 || image_view.size.height != 225 ||
+                image_view.ImageHandle() == VK_NULL_HANDLE) {
+                continue;
+            }
+            cache.runtime.RegisterSkyrimTraceTarget(
+                image_view.GpuAddr(), image_view.ImageHandle(), image_view.size.width,
+                image_view.size.height, static_cast<u32>(image_view.format),
+                pipeline.FragmentShaderHash(), scheduler_tick);
+        }
+    }
+}
 struct DrawParams {
     u32 base_instance;
     u32 num_instances;
@@ -245,6 +309,7 @@ bool IsPrimitiveRestartSupported(const Device& device, VkPrimitiveTopology topol
              device.IsPatchListPrimitiveRestartSupported()));
 }
 
+#if 0 // Disabled in the lightweight targeted capture build.
 // Global Skyrim fragment-shader blacklist for the current diagnostic build.
 // Every draw using the selected fragment hash is skipped, across all pipelines and scenes.
 bool ShouldSkipSkyrimFragmentShader(u64 shader_hash) {
@@ -1018,6 +1083,8 @@ void CaptureSkyrimAbcDiagnostic(const GraphicsPipeline& pipeline,
     }
 }
 
+#endif // legacy broad Skyrim diagnostics
+
 } // Anonymous namespace
 
 RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra::GPU& gpu_,
@@ -1058,6 +1125,7 @@ RasterizerVulkan::~RasterizerVulkan() {
 
 template <typename Func>
 void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
+    ResetSkyrimCaptureFilesOnce();
 
     SCOPE_EXIT {
         gpu.TickWork();
@@ -1072,11 +1140,8 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
     // update engine as channel may be different.
     pipeline->SetEngine(maxwell3d, gpu_memory);
-    if (ShouldSkipSkyrimFragmentShader(pipeline->FragmentShaderHash())) {
-        LogSkippedSkyrimShader(pipeline->FragmentShaderHash(), *maxwell3d);
-        return;
-    }
-    CaptureSkyrimLightBuffers(pipeline->FragmentShaderHash(), *maxwell3d, *gpu_memory);
+    CaptureSkyrimLightImageSample(*pipeline, *maxwell3d, *gpu_memory, texture_cache,
+                                  scheduler.CurrentTick());
     attribute_handle_pipeline = nullptr;
     attribute_handle_runs.clear();
     if (split_attribute_handles && pipeline->UsesAttributeHandle()) {
@@ -1086,12 +1151,6 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
             pipeline->SetAttributeHandle(attribute_handle_runs.front().handle);
         }
     }
-    CaptureSkyrimPipelineDiagnostic(*pipeline, *maxwell3d, is_indexed,
-                                     static_cast<u32>(maxwell3d->draw_manager.draw_state.topology),
-                                     attribute_handle_runs);
-    CaptureSkyrimAbcDiagnostic(*pipeline, *maxwell3d, *gpu_memory, is_indexed,
-                                static_cast<u32>(maxwell3d->draw_manager.draw_state.topology),
-                                attribute_handle_runs, scheduler.CurrentTick());
     if (!pipeline->Configure(is_indexed))
         return;
 
@@ -1100,10 +1159,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     query_cache.NotifySegment(true);
     HandleTransformFeedback();
     query_cache.CounterEnable(VideoCommon::QueryType::ZPassPixelCount64, maxwell3d->regs.zpass_pixel_count_enable);
-    CaptureSkyrimDrawEvent(*pipeline, "draw_command_recording_begin", *maxwell3d, *gpu_memory);
     draw_func();
-    // This marks CPU-side command recording/submission to the scheduler, not GPU completion.
-    CaptureSkyrimDrawEvent(*pipeline, "draw_command_recorded", *maxwell3d, *gpu_memory);
 }
 
 void RasterizerVulkan::CollectAttributeHandleRuns(bool is_indexed) {
@@ -1518,7 +1574,6 @@ void RasterizerVulkan::Clear(u32 layer_count) {
 }
 
 void RasterizerVulkan::DispatchCompute() {
-    ResetSkyrimCaptureFilesOnce();
     FlushWork();
     gpu_memory->FlushCaching();
 
@@ -1535,58 +1590,7 @@ void RasterizerVulkan::DispatchCompute() {
     const auto& qmd{kepler_compute->launch_description};
     auto indirect_address = kepler_compute->GetIndirectComputeAddress();
 
-    // Observational compute trace, recorded until process shutdown. shared_alloc is the guest QMD allocation
-    // request; it is logged in raw units so it can be compared with the shader's
-    // translated shared-memory requirement without assuming a unit conversion here.
-    {
-        static std::mutex compute_log_mutex;
-        static size_t compute_events = 0;
-        static std::ofstream compute_log;
-        std::scoped_lock compute_lock{compute_log_mutex};
-        {
-            const auto wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-            const auto monotonic_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch()).count();
-            const auto& shader_info = pipeline->ShaderInfo();
-            const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
-                              "skyrim_compute_events.log";
-            std::error_code error;
-            std::filesystem::create_directories(path.parent_path(), error);
-            if (!error) {
-                if (!compute_log.is_open()) {
-                    compute_log.open(path, std::ios::app);
-                    if (compute_log.is_open()) {
-
-                    }
-                }
-                if (compute_log.is_open()) {
-                    compute_log << "wall_ms=" << wall_ms << " monotonic_ms=" << monotonic_ms
-                                << " sequence=" << compute_events
-                                << " shader=0x" << std::hex << pipeline->ShaderHash()
-                                << std::dec << " indirect=" << static_cast<bool>(indirect_address)
-                                << " grid_x=" << qmd.grid_dim_x.Value()
-                                << " grid_y=" << qmd.grid_dim_y.Value()
-                                << " grid_z=" << qmd.grid_dim_z.Value()
-                                << " block_x=" << qmd.block_dim_x.Value()
-                                << " block_y=" << qmd.block_dim_y.Value()
-                                << " block_z=" << qmd.block_dim_z.Value()
-                                << " shared_alloc_raw=" << qmd.shared_alloc.Value()
-                                << " cbuf_mask=0x" << std::hex
-                                << qmd.const_buffer_enable_mask.Value() << std::dec
-                                << " storage_buffers=" << shader_info.storage_buffers_descriptors.size()
-                                << " textures=" << shader_info.texture_descriptors.size()
-                                << " images=" << shader_info.image_descriptors.size()
-                                << " image_buffers=" << shader_info.image_buffer_descriptors.size()
-                                << " texture_buffers=" << shader_info.texture_buffer_descriptors.size()
-                                << "\n";
-                    if (++compute_events % 32 == 0) {
-                        compute_log.flush();
-                    }
-                }
-            }
-        }
-    }
+    // Broad per-dispatch diagnostics are disabled in this lightweight build.
     if (indirect_address) {
         // DispatchIndirect
         static constexpr auto sync_info = VideoCommon::ObtainBufferSynchronize::FullSynchronize;
