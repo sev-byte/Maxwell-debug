@@ -101,9 +101,7 @@ void CaptureSkyrimLightImageSample(const GraphicsPipeline& pipeline,
         return;
     }
 
-    // Resolve only descriptors referenced by de45. The target image is registered once;
-    // subsequent records are emitted only when this shader actually samples it.
-    cache.SynchronizeDescriptors(false);
+    // GraphicsPipeline::Configure has already synchronized the active descriptor table.
     const auto& info = pipeline.FragmentShaderInfo();
     const auto& cbufs = engine.state.shader_stages[4].const_buffers;
     const auto& regs = engine.regs;
@@ -1140,8 +1138,6 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
     // update engine as channel may be different.
     pipeline->SetEngine(maxwell3d, gpu_memory);
-    CaptureSkyrimLightImageSample(*pipeline, *maxwell3d, *gpu_memory, texture_cache,
-                                  scheduler.CurrentTick());
     attribute_handle_pipeline = nullptr;
     attribute_handle_runs.clear();
     if (split_attribute_handles && pipeline->UsesAttributeHandle()) {
@@ -1154,6 +1150,8 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
     if (!pipeline->Configure(is_indexed))
         return;
 
+    CaptureSkyrimLightImageSample(*pipeline, *maxwell3d, *gpu_memory, texture_cache,
+                                  scheduler.CurrentTick());
     UpdateDynamicStates();
 
     query_cache.NotifySegment(true);
