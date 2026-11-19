@@ -5,6 +5,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <fstream>
+#include <mutex>
 #include <limits>
 #include <array>
 #include <optional>
@@ -16,6 +20,8 @@
 #include <bit>
 #include <numeric>
 #include "common/bit_util.h"
+#include "common/fs/fs.h"
+#include "common/fs/path_util.h"
 #include "common/settings.h"
 
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
@@ -55,6 +61,35 @@ using VideoCore::Surface::IsPixelFormatSRGB;
 using VideoCore::Surface::SurfaceType;
 
 namespace {
+void WriteSkyrimLightTraceRecord(const char* event, u64 guest_address, u64 image_handle,
+                                 u32 width, u32 height, u32 format, u64 shader_hash,
+                                 u64 scheduler_tick, u64 modification_tick) noexcept {
+    static std::mutex mutex;
+    std::scoped_lock lock{mutex};
+    const auto path = Common::FS::GetEdenPath(Common::FS::EdenPath::DumpDir) /
+                      "skyrim_light_trace.log";
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error) {
+        return;
+    }
+    std::ofstream file(path, std::ios::app);
+    if (!file.is_open()) {
+        return;
+    }
+    const auto wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const auto monotonic_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    file << "wall_ms=" << wall_ms << " monotonic_ms=" << monotonic_ms
+         << " event=" << event << " guest_gpu_address=0x" << std::hex << guest_address
+         << " vk_image=0x" << image_handle << std::dec
+         << " width=" << width << " height=" << height << " format=" << format
+         << " shader=0x" << std::hex << shader_hash << std::dec
+         << " scheduler_tick=" << scheduler_tick
+         << " image_modification_tick=" << modification_tick << "\\n";
+}
+}
 constexpr bool ENABLE_MSAA_TILER_RESOLVE = true;
 constexpr bool ENABLE_MSAA_RESOLVE_CONSUME = true;
 constexpr bool ENABLE_MSAA_COLOR_DISCARD = true;
@@ -1856,6 +1891,42 @@ void TextureCacheRuntime::ReleaseMsaaScratchImage(VkImage image) {
             return;
         }
     }
+}
+
+void TextureCacheRuntime::RegisterSkyrimTraceTarget(GPUVAddr guest_address, VkImage image,
+                                                   u32 width, u32 height, u32 format,
+                                                   u64 shader_hash, u64 scheduler_tick) {
+    if (guest_address == 0 || image == VK_NULL_HANDLE) {
+        return;
+    }
+    const u64 image_handle = static_cast<u64>(reinterpret_cast<std::uintptr_t>(image));
+    const u64 previous_address = skyrim_trace_guest_address.exchange(guest_address);
+    const u64 previous_image = skyrim_trace_image_handle.exchange(image_handle);
+    if (previous_address != guest_address || previous_image != image_handle) {
+        skyrim_trace_last_write_tick.store(~u64{0});
+        WriteSkyrimLightTraceRecord("target", guest_address, image_handle, width, height,
+                                    format, shader_hash, scheduler_tick, 0);
+    }
+    if (skyrim_trace_last_sample_tick.exchange(scheduler_tick) != scheduler_tick) {
+        WriteSkyrimLightTraceRecord("sample", guest_address, image_handle, width, height,
+                                    format, shader_hash, scheduler_tick, 0);
+    }
+}
+
+void TextureCacheRuntime::TraceSkyrimImageWrite(const Image& image) noexcept {
+    const u64 target_image = skyrim_trace_image_handle.load();
+    if (target_image == 0 ||
+        static_cast<u64>(reinterpret_cast<std::uintptr_t>(image.Handle())) != target_image) {
+        return;
+    }
+    const u64 scheduler_tick = scheduler.CurrentTick();
+    if (skyrim_trace_last_write_tick.exchange(scheduler_tick) == scheduler_tick) {
+        return;
+    }
+    WriteSkyrimLightTraceRecord(
+        "image_write", image.gpu_addr, target_image, image.info.size.width,
+        image.info.size.height, static_cast<u32>(image.info.format), 0, scheduler_tick,
+        image.modification_tick);
 }
 
 void TextureCacheRuntime::TickFrame() {
