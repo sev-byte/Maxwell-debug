@@ -80,7 +80,7 @@ void ResetSkyrimCaptureFilesOnce() {
         const auto monotonic_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
         const std::string header =
-            fmt::format("=== Skyrim light trace started wall_ms={} monotonic_ms={} ===\\n",
+            fmt::format("=== Skyrim light trace started wall_ms={} monotonic_ms={} ===\n",
                         wall_ms, monotonic_ms);
         std::ofstream file(directory / "skyrim_light_trace.log", std::ios::out | std::ios::trunc);
         if (file.is_open()) {
