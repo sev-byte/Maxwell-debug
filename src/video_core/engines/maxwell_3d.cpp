@@ -389,7 +389,16 @@ void Maxwell3D::CallMethod(Core::System& system, u32 method, u32 method_argument
     // It is an error to write to a register other than the current macro's ARG register before
     // it has finished execution.
     if (executing_macro != 0) {
-        ASSERT(method == executing_macro + 1);
+        const u32 expected_argument_method = executing_macro + 1;
+        const u32 macro_entry =
+            ((executing_macro - MacroRegistersStart) >> 1) %
+            static_cast<u32>(macro_positions.size());
+        ASSERT_MSG(method == expected_argument_method,
+                   "Maxwell macro argument sequence mismatch: incoming_method=0x{:x}, "
+                   "expected_argument_method=0x{:x}, macro_method=0x{:x}, macro_entry={}, "
+                   "queued_arguments={}, dma_segment=0x{:x}, is_last_call={}",
+                   method, expected_argument_method, executing_macro, macro_entry,
+                   macro_params.size(), current_dma_segment, is_last_call);
     }
 
     // Methods after 0xE00 are special, they're actually triggers for some microcode that was
