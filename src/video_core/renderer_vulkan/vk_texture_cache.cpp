@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <filesystem>
 #include <mutex>
 #include <limits>
 #include <array>
@@ -87,7 +88,7 @@ void WriteSkyrimLightTraceRecord(const char* event, u64 guest_address, u64 image
          << " width=" << width << " height=" << height << " format=" << format
          << " shader=0x" << std::hex << shader_hash << std::dec
          << " scheduler_tick=" << scheduler_tick
-         << " image_modification_tick=" << modification_tick << "\\n";
+         << " image_modification_tick=" << modification_tick << "\n";
 }
 }
 constexpr bool ENABLE_MSAA_TILER_RESOLVE = true;
