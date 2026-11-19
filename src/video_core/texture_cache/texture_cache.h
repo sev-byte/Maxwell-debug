@@ -2445,6 +2445,11 @@ template <class P>
 void TextureCache<P>::MarkModification(ImageBase& image) noexcept {
     image.flags |= ImageFlagBits::GpuModified;
     image.modification_tick = ++modification_tick;
+    if constexpr (requires(Runtime& cache_runtime, const Image& target_image) {
+                      cache_runtime.TraceSkyrimImageWrite(target_image);
+                  }) {
+        cache_runtime.TraceSkyrimImageWrite(static_cast<const Image&>(image));
+    }
 }
 
 template <class P>
