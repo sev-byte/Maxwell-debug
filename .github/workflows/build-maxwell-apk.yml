@@ -11,6 +11,7 @@ on:
       - skyrim-diag-cache-barriers
       - skyrim-diag-shader-inputs
       - skyrim-tests-abc
+      - skyrim-light-trace-lite
       - skyrim-diag-depth-stencil
       - skyrim-diag-sync-renderpass
     paths:
