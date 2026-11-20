@@ -211,6 +211,21 @@ typename P::ImageView& TextureCache<P>::GetImageView(u32 index) noexcept {
 }
 
 template <class P>
+void TextureCache<P>::RegisterSkyrimTraceTarget(const ImageView& image_view, u64 shader_hash,
+                                                u64 scheduler_tick) {
+    if constexpr (requires(Runtime& cache_runtime, const ImageView& view) {
+                      cache_runtime.RegisterSkyrimTraceTarget(
+                          view.GpuAddr(), view.ImageHandle(), view.size.width, view.size.height,
+                          static_cast<u32>(view.format), shader_hash, scheduler_tick);
+                  }) {
+        runtime.RegisterSkyrimTraceTarget(
+            image_view.GpuAddr(), image_view.ImageHandle(), image_view.size.width,
+            image_view.size.height, static_cast<u32>(image_view.format), shader_hash,
+            scheduler_tick);
+    }
+}
+
+template <class P>
 void TextureCache<P>::MarkModification(ImageId id) noexcept {
     MarkModification(slot_images[id]);
 }
