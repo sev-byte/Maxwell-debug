@@ -164,6 +164,11 @@ public:
     /// Get the imageview from the graphics descriptor table in the specified index
     [[nodiscard]] ImageView& GetImageView(u32 index) noexcept;
 
+    /// Register an image view selected by the narrow Skyrim lighting trace, when supported by
+    /// the active backend. This keeps backend runtime state encapsulated.
+    void RegisterSkyrimTraceTarget(const ImageView& image_view, u64 shader_hash,
+                                   u64 scheduler_tick);
+
     /// Mark an image as modified from the GPU
     void MarkModification(ImageId id) noexcept;
 
