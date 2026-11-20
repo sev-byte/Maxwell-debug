@@ -151,10 +151,8 @@ void CaptureSkyrimLightImageSample(const GraphicsPipeline& pipeline,
                 image_view.ImageHandle() == VK_NULL_HANDLE) {
                 continue;
             }
-            cache.runtime.RegisterSkyrimTraceTarget(
-                image_view.GpuAddr(), image_view.ImageHandle(), image_view.size.width,
-                image_view.size.height, static_cast<u32>(image_view.format),
-                pipeline.FragmentShaderHash(), scheduler_tick);
+            cache.RegisterSkyrimTraceTarget(image_view, pipeline.FragmentShaderHash(),
+                                             scheduler_tick);
         }
     }
 }
