@@ -128,6 +128,7 @@ void TraceSkyrimImageBarrier(VkImage image, VkImageAspectFlags aspects,
          << " scheduler_tick=" << scheduler_tick << "\\n";
 }
 
+namespace {
 constexpr bool ENABLE_MSAA_TILER_RESOLVE = true;
 constexpr bool ENABLE_MSAA_RESOLVE_CONSUME = true;
 constexpr bool ENABLE_MSAA_COLOR_DISCARD = true;
