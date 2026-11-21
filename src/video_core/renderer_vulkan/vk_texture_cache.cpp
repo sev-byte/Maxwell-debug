@@ -125,7 +125,7 @@ void TraceSkyrimImageBarrier(VkImage image, VkImageAspectFlags aspects,
          << " dst_access=0x" << dst_access << std::dec
          << " old_layout=" << static_cast<u32>(old_layout)
          << " new_layout=" << static_cast<u32>(new_layout)
-         << " scheduler_tick=" << scheduler_tick << "\\n";
+         << " scheduler_tick=" << scheduler_tick << "\n";
 }
 
 namespace {
