@@ -460,15 +460,15 @@ bool BufferCacheRuntime::CanReorderUpload(const Buffer& buffer,
             buffer.LastUsageTick());
         return false;
     }
-    bool can_use_upload_cmdbuf = true;
-    for (const VideoCommon::BufferCopy& copy : copies) {
-        const bool region_used = buffer.IsRegionUsed(copy.dst_offset, copy.size);
-        PipelineAudit::Log(
-            "UPLOAD_REORDER_RANGE buffer={:#x} guest_addr={:#x} dst_offset={} size={} region_used={} tick={} last_usage_tick={}",
-            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), copy.dst_offset,
-            copy.size, region_used, CurrentTick(), buffer.LastUsageTick());
-        can_use_upload_cmdbuf &= !region_used;
-    }
+    const bool can_use_upload_cmdbuf =
+        std::ranges::all_of(copies, [&](const VideoCommon::BufferCopy& copy) {
+            const bool region_used = buffer.IsRegionUsed(copy.dst_offset, copy.size);
+            PipelineAudit::Log(
+                "UPLOAD_REORDER_RANGE buffer={:#x} guest_addr={:#x} dst_offset={} size={} region_used={} tick={} last_usage_tick={}",
+                PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), copy.dst_offset,
+                copy.size, region_used, CurrentTick(), buffer.LastUsageTick());
+            return !region_used;
+        });
     PipelineAudit::Log(
         "UPLOAD_REORDER_DECISION buffer={:#x} guest_addr={:#x} copy_count={} decision={} expected_submit_tick={} last_usage_tick={}",
         PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), copies.size(),

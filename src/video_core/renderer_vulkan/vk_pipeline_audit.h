@@ -24,12 +24,16 @@ u64 HandleValue(Handle handle) noexcept {
 }
 
 template <typename... Args>
-void Log(fmt::format_string<Args...> format, Args&&... args) {
-    auto& logger = GPU::Logging::GPULogger::GetInstance();
-    if (!logger.IsDetailedAuditEnabled()) {
-        return;
+void Log(fmt::format_string<Args...> format, Args&&... args) noexcept {
+    try {
+        auto& logger = GPU::Logging::GPULogger::GetInstance();
+        if (!logger.IsDetailedAuditEnabled()) {
+            return;
+        }
+        logger.LogPipelineAuditEvent(fmt::format(format, std::forward<Args>(args)...));
+    } catch (...) {
+        // Diagnostics are best-effort and must never affect emulation.
     }
-    logger.LogPipelineAuditEvent(fmt::format(format, std::forward<Args>(args)...));
 }
 
 } // namespace Vulkan::PipelineAudit
