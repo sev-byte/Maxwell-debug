@@ -11,15 +11,17 @@
 #include "common/logging.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_update_descriptor.h"
+#include "video_core/renderer_vulkan/vk_pipeline_audit.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 
 namespace Vulkan {
 
 UpdateDescriptorQueue::UpdateDescriptorQueue(const Device& device_, size_t frame_payload_size_,
-                                             bool supports_descriptor_buffer_)
+                                             bool supports_descriptor_buffer_,
+                                             const char* audit_name_)
     : device{device_}, frame_payload_size{frame_payload_size_},
-      supports_descriptor_buffer{supports_descriptor_buffer_},
+      supports_descriptor_buffer{supports_descriptor_buffer_}, audit_name{audit_name_},
       payload(frame_payload_size_ * FRAMES_IN_FLIGHT)
 {
     payload_start = payload.data();
@@ -29,11 +31,14 @@ UpdateDescriptorQueue::UpdateDescriptorQueue(const Device& device_, size_t frame
 UpdateDescriptorQueue::~UpdateDescriptorQueue() = default;
 
 void UpdateDescriptorQueue::TickFrame() {
+    const size_t previous_frame = frame_index;
     if (++frame_index >= FRAMES_IN_FLIGHT) {
         frame_index = 0;
     }
     payload_start = payload.data() + frame_index * frame_payload_size;
     payload_cursor = payload_start;
+    PipelineAudit::Log("DESCRIPTOR_QUEUE_FRAME queue={} previous={} current={} capacity={}",
+                       audit_name, previous_frame, frame_index, frame_payload_size);
 }
 
 void UpdateDescriptorQueue::Acquire(Scheduler& scheduler, size_t required_entries,
@@ -44,6 +49,11 @@ void UpdateDescriptorQueue::Acquire(Scheduler& scheduler, size_t required_entrie
     ASSERT_MSG(reserve < frame_payload_size, "Descriptor reservation {} >= frame capacity {}",
                reserve, frame_payload_size);
     const size_t used = static_cast<size_t>(std::distance(payload_start, payload_cursor));
+    PipelineAudit::Log(
+        "DESCRIPTOR_QUEUE_ACQUIRE queue={} frame={} used={} reserve={} capacity={} mode={} scheduler_tick={}",
+        audit_name, frame_index, used, reserve, frame_payload_size,
+        use_descriptor_buffer ? "descriptor_buffer" : "descriptor_set_payload",
+        scheduler.CurrentTick());
     if (used + reserve >= frame_payload_size) {
         LOG_WARNING(Render_Vulkan, "Payload overflow (used={}, reserve={}, capacity={})",
                     used, reserve, frame_payload_size);

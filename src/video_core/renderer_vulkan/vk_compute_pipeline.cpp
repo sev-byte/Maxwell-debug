@@ -14,6 +14,7 @@
 #include "video_core/renderer_vulkan/pipeline_statistics.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_compute_pipeline.h"
+#include "video_core/renderer_vulkan/vk_pipeline_audit.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -69,6 +70,19 @@ ComputePipeline::ComputePipeline(const Device& device_, Scheduler& scheduler, vk
             descriptor_set_layout = builder.CreateDescriptorSetLayout(false);
         }
     }
+    const char* descriptor_mode = uses_descriptor_buffer ? "descriptor_buffer" :
+                                  uses_push_descriptor ? "push_descriptor" : "descriptor_sets";
+    PipelineAudit::Log(
+        "TARGET_DISCOVERY kind=compute shader={:#x} descriptor_entries={} uniform_buffers={} storage_buffers={} sampled_textures={} images={} texel_buffers={} mode={} has_layout={}",
+        shader_hash, num_descriptor_entries,
+        Shader::NumDescriptors(info.constant_buffer_descriptors),
+        Shader::NumDescriptors(info.storage_buffers_descriptors),
+        Shader::NumDescriptors(info.texture_descriptors),
+        Shader::NumDescriptors(info.image_descriptors),
+        Shader::NumDescriptors(info.texture_buffer_descriptors) +
+            Shader::NumDescriptors(info.image_buffer_descriptors),
+        descriptor_mode, static_cast<bool>(descriptor_set_layout));
+
     pipeline_layout = builder.CreatePipelineLayout(*descriptor_set_layout);
     if (!uses_descriptor_buffer) {
         descriptor_update_template =
@@ -289,6 +303,13 @@ bool ComputePipeline::Configure(Tegra::Engines::KeplerCompute& kepler_compute,
 
     const bool bind_descriptor_buffer{
         uses_descriptor_buffer && scheduler.UpdateDescriptorBufferChunk(descriptor_buffer_chunk)};
+    const char* descriptor_mode = !descriptor_set_layout ? "none" :
+                                  uses_descriptor_buffer ? "descriptor_buffer" :
+                                  uses_push_descriptor ? "push_descriptor" : "descriptor_sets";
+    PipelineAudit::Log(
+        "PIPELINE_BIND kind=compute shader={:#x} descriptor_mode={} descriptor_entries={} chunk={} offset={} bind_descriptor_buffer={} scheduler_tick={}",
+        shader_hash, descriptor_mode, num_descriptor_entries, descriptor_buffer_chunk,
+        descriptor_buffer_offset, bind_descriptor_buffer, scheduler.CurrentTick());
 
     const bool is_rescaling = !info.texture_descriptors.empty() || !info.image_descriptors.empty();
     scheduler.Record([this, descriptor_data, is_rescaling, descriptor_buffer_offset,

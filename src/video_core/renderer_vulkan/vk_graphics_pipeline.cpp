@@ -20,6 +20,7 @@
 #include "video_core/renderer_vulkan/pipeline_statistics.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
+#include "video_core/renderer_vulkan/vk_pipeline_audit.h"
 #include "video_core/renderer_vulkan/vk_render_pass_cache.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_texture_cache.h"
@@ -301,6 +302,14 @@ GraphicsPipeline::GraphicsPipeline(
         }
     }
 
+    const char* descriptor_mode = uses_descriptor_buffer ? "descriptor_buffer" :
+                                  uses_push_descriptor ? "push_descriptor" : "descriptor_sets";
+    PipelineAudit::Log(
+        "TARGET_DISCOVERY kind=graphics key={:#x} shaders=[{:#x},{:#x},{:#x},{:#x},{:#x},{:#x}] descriptor_entries={} sampled_textures={} image_elements={} mode={} has_layout={}",
+        key.Hash(), key.unique_hashes[0], key.unique_hashes[1], key.unique_hashes[2],
+        key.unique_hashes[3], key.unique_hashes[4], key.unique_hashes[5], num_descriptor_entries,
+        num_textures, num_image_elements, descriptor_mode, static_cast<bool>(descriptor_set_layout));
+
     const VkDescriptorSetLayout set_layout{*descriptor_set_layout};
     pipeline_layout = builder.CreatePipelineLayout(set_layout);
     if (!uses_descriptor_buffer) {
@@ -573,6 +582,7 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
 
     VkDeviceSize descriptor_buffer_offset{};
     u32 descriptor_buffer_chunk{};
+    bool reused_descriptor_allocation = false;
     if (descriptor_set_layout && uses_descriptor_buffer) {
         const auto* const entries = static_cast<const DescriptorUpdateEntry*>(descriptor_data);
         const bool reuse_allocation =
@@ -581,6 +591,7 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
             std::memcmp(last_descriptor_payload.data(), entries,
                         num_descriptor_entries * sizeof(DescriptorUpdateEntry)) == 0;
         if (reuse_allocation) {
+            reused_descriptor_allocation = true;
             descriptor_buffer_offset = last_descriptor_buffer_offset;
             descriptor_buffer_chunk = last_descriptor_buffer_chunk;
             descriptor_buffer_ring.TouchFrame(scheduler);
@@ -634,6 +645,15 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
             last_descriptor_payload.assign(entries, entries + num_descriptor_entries);
         }
     }
+    const char* descriptor_mode = !descriptor_set_layout ? "none" :
+                                  uses_descriptor_buffer ? "descriptor_buffer" :
+                                  uses_push_descriptor ? "push_descriptor" : "descriptor_sets";
+    PipelineAudit::Log(
+        "PIPELINE_BIND kind=graphics key={:#x} bind_pipeline={} descriptor_mode={} descriptor_entries={} descriptor_buffer_reused={} chunk={} offset={} bind_descriptor_buffer={} update_descriptors={} scheduler_tick={}",
+        key.Hash(), bind_pipeline, descriptor_mode, num_descriptor_entries,
+        reused_descriptor_allocation, descriptor_buffer_chunk, descriptor_buffer_offset,
+        bind_descriptor_buffer, update_descriptors, scheduler.CurrentTick());
+
     scheduler.Record([this, descriptor_data, bind_pipeline, update_descriptors,
                       descriptor_buffer_offset, descriptor_buffer_chunk, bind_descriptor_buffer,
                       rescaling_data = rescaling.Data(), is_rescaling, update_rescaling,

@@ -7,6 +7,7 @@
 #include "common/assert.h"
 #include "common/logging.h"
 #include "video_core/renderer_vulkan/vk_descriptor_buffer.h"
+#include "video_core/renderer_vulkan/vk_pipeline_audit.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 
@@ -79,6 +80,7 @@ DescriptorBufferRing::DescriptorBufferRing(const Device& device_,
 DescriptorBufferRing::~DescriptorBufferRing() = default;
 
 void DescriptorBufferRing::TickFrame() {
+    const size_t previous_frame = frame_index;
     if (++frame_index >= FRAMES_IN_FLIGHT) {
         frame_index = 0;
     }
@@ -86,10 +88,14 @@ void DescriptorBufferRing::TickFrame() {
     cursor = 0;
     ++generation;
     frame_reused = true;
+    PipelineAudit::Log("DESCRIPTOR_BUFFER_FRAME previous={} current={} generation={} reused={}",
+                       previous_frame, frame_index, generation, frame_reused);
 }
 
 void DescriptorBufferRing::TouchFrame(Scheduler& scheduler) {
     frame_ticks[frame_index] = scheduler.CurrentTick();
+    PipelineAudit::Log("DESCRIPTOR_BUFFER_TOUCH frame={} generation={} tick={}", frame_index,
+                       generation, frame_ticks[frame_index]);
 }
 
 DescriptorBufferRing::Allocation DescriptorBufferRing::Allocate(Scheduler& scheduler,
@@ -98,6 +104,8 @@ DescriptorBufferRing::Allocation DescriptorBufferRing::Allocate(Scheduler& sched
     if (!CanAllocate(size)) {
         LOG_DEBUG(Render_Vulkan, "Descriptor set of {} bytes exceeds chunk capacity {}", size,
                   chunk_capacity);
+        PipelineAudit::Log("DESCRIPTOR_BUFFER_ALLOC_FAIL size={} capacity={} generation={}", size,
+                           chunk_capacity, generation);
         return Allocation{};
     }
     const VkDeviceSize needed{Common::AlignUp(size, alignment)};
@@ -120,12 +128,16 @@ DescriptorBufferRing::Allocation DescriptorBufferRing::Allocate(Scheduler& sched
     const VkDeviceSize offset{cursor};
     cursor += needed;
     frame_ticks[frame_index] = scheduler.CurrentTick();
-    return Allocation{
+    const Allocation allocation{
         .host = chunk_hosts[chunk] + offset,
         .offset = offset,
         .chunk = static_cast<u32>(chunk),
         .generation = generation,
     };
+    PipelineAudit::Log(
+        "DESCRIPTOR_BUFFER_ALLOC frame={} chunk={} offset={} size={} aligned_size={} generation={} tick={}",
+        frame_index, chunk, offset, size, needed, generation, frame_ticks[frame_index]);
+    return allocation;
 }
 
 VkDescriptorBufferBindingInfoEXT DescriptorBufferRing::BindingInfo(u32 chunk) const noexcept {

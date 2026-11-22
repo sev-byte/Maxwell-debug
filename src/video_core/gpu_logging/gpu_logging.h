@@ -113,6 +113,10 @@ public:
     // Clear operation logging
     void LogClearOperation(const std::string& clear_info);
 
+    // High-detail, observational renderer diagnostics. Enabled only at Verbose GPU log level.
+    void LogPipelineAuditEvent(const std::string& audit_info);
+    [[nodiscard]] bool IsDetailedAuditEnabled() const noexcept;
+
     // Crash handling
     GPUStateSnapshot GetCurrentSnapshot();
     void DumpStateToFile(const std::string& crash_reason);

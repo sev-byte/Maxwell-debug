@@ -1912,6 +1912,11 @@ Image::Image(TextureCacheRuntime& runtime_, const ImageInfo& info_, GPUVAddr gpu
                 MakeStorageView(device, level, *original_image, storage_format);
         }
     }
+    PipelineAudit::Log(
+        "IMAGE_CREATE image={:#x} guest_gpu_addr={:#x} guest_cpu_addr={:#x} format={} samples={} extent={}x{}x{} levels={} layers={} aspect_mask={:#x}",
+        PipelineAudit::HandleValue(Handle()), gpu_addr, cpu_addr, static_cast<u32>(info.format),
+        info.num_samples, info.size.width, info.size.height, info.size.depth,
+        info.resources.levels, info.resources.layers, aspect_mask);
 }
 
 Image::Image(const VideoCommon::NullImageParams& params) : VideoCommon::ImageBase{params} {}
@@ -2576,6 +2581,13 @@ ImageView::ImageView(TextureCacheRuntime& runtime, const VideoCommon::ImageViewI
             ci.subresourceRange.layerCount = *num_layers;
         }
         vk::ImageView handle = device->GetLogical().CreateImageView(ci);
+        PipelineAudit::Log(
+            "IMAGE_VIEW_CREATE image={:#x} view={:#x} guest_gpu_addr={:#x} type={} format={} aspect_mask={:#x} base_mip={} levels={} base_layer={} layers={}",
+            PipelineAudit::HandleValue(image_handle), PipelineAudit::HandleValue(*handle),
+            gpu_addr, static_cast<u32>(tex_type), static_cast<u32>(format_info.format),
+            ci.subresourceRange.aspectMask, ci.subresourceRange.baseMipLevel,
+            ci.subresourceRange.levelCount, ci.subresourceRange.baseArrayLayer,
+            ci.subresourceRange.layerCount);
         if (device->HasDebuggingToolAttached()) {
             handle.SetObjectNameEXT(VideoCommon::Name(*this, gpu_addr).c_str());
         }
@@ -2718,7 +2730,7 @@ vk::ImageView ImageView::MakeView(VkFormat vk_format, VkImageAspectFlags aspect_
             break;
         }
     }
-    return device->GetLogical().CreateImageView({
+    vk::ImageView view = device->GetLogical().CreateImageView({
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
@@ -2733,6 +2745,13 @@ vk::ImageView ImageView::MakeView(VkFormat vk_format, VkImageAspectFlags aspect_
         },
         .subresourceRange = subresource_range,
     });
+    PipelineAudit::Log(
+        "IMAGE_VIEW_CREATE image={:#x} view={:#x} guest_gpu_addr={:#x} type={} format={} aspect_mask={:#x} base_mip={} levels={} base_layer={} layers={}",
+        PipelineAudit::HandleValue(image_handle), PipelineAudit::HandleValue(*view), gpu_addr,
+        static_cast<u32>(view_type), static_cast<u32>(vk_format), subresource_range.aspectMask,
+        subresource_range.baseMipLevel, subresource_range.levelCount,
+        subresource_range.baseArrayLayer, subresource_range.layerCount);
+    return view;
 }
 
 CustomBorderColorBudget::~CustomBorderColorBudget() {
@@ -2934,6 +2953,10 @@ VkSampler Sampler::Emplace(VariantKey key) {
         .key = key,
         .sampler = device_ptr->GetLogical().CreateSampler(create_info),
     });
+    PipelineAudit::Log(
+        "SAMPLER_CREATE sampler={:#x} custom_border={} swizzle={} force_nearest={} reduce_anisotropy={} drop_reduction={} srgb_border={}",
+        PipelineAudit::HandleValue(*variants.back().sampler), custom_border, key.HasSwizzle(),
+        key.force_nearest, key.reduce_anisotropy, key.drop_reduction, key.srgb_border);
     return *variants.back().sampler;
 }
 

@@ -8,6 +8,7 @@
 
 #include <variant>
 #include <vector>
+#include "video_core/renderer_vulkan/vk_pipeline_audit.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 
 namespace Vulkan {
@@ -44,7 +45,8 @@ public:
     static constexpr size_t COMPUTE_FRAME_PAYLOAD_SIZE = 0x20000;
 
     explicit UpdateDescriptorQueue(const Device& device_, size_t frame_payload_size_,
-                                   bool supports_descriptor_buffer_ = false);
+                                   bool supports_descriptor_buffer_ = false,
+                                   const char* audit_name_ = "descriptor_queue");
     ~UpdateDescriptorQueue();
 
     [[nodiscard]] bool UsesDescriptorBuffer() const noexcept {
@@ -65,6 +67,9 @@ public:
             .imageView = image_view,
             .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
         };
+        PipelineAudit::Log("DESCRIPTOR_WRITE queue={} kind=sampled_image view={:#x} sampler={:#x}",
+                           audit_name, PipelineAudit::HandleValue(image_view),
+                           PipelineAudit::HandleValue(sampler));
     }
 
     void AddImage(VkImageView image_view) {
@@ -73,6 +78,8 @@ public:
             .imageView = image_view,
             .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
         };
+        PipelineAudit::Log("DESCRIPTOR_WRITE queue={} kind=image view={:#x}", audit_name,
+                           PipelineAudit::HandleValue(image_view));
     }
 
     void AddBuffer(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) {
@@ -81,6 +88,9 @@ public:
             .offset = offset,
             .range = size,
         };
+        PipelineAudit::Log(
+            "DESCRIPTOR_WRITE queue={} kind=buffer handle={:#x} offset={} range={}", audit_name,
+            PipelineAudit::HandleValue(buffer), offset, size);
     }
 
     void AddBuffer(VkBuffer buffer, VkDeviceAddress base_address, VkDeviceSize offset,
@@ -94,10 +104,16 @@ public:
             .range = base_address == 0 ? VK_WHOLE_SIZE : size,
             .format = VK_FORMAT_UNDEFINED,
         };
+        PipelineAudit::Log(
+            "DESCRIPTOR_WRITE queue={} kind=buffer_address address={:#x} base={:#x} offset={} range={}",
+            audit_name, base_address == 0 ? 0 : base_address + offset, base_address, offset,
+            base_address == 0 ? VK_WHOLE_SIZE : size);
     }
 
     void AddTexelBuffer(VkBufferView texel_buffer) {
         *(payload_cursor++) = texel_buffer;
+        PipelineAudit::Log("DESCRIPTOR_WRITE queue={} kind=texel_buffer view={:#x}", audit_name,
+                           PipelineAudit::HandleValue(texel_buffer));
     }
 
     void AddTexelBuffer(VkBufferView texel_buffer, VkDeviceAddress base_address,
@@ -111,12 +127,17 @@ public:
             .range = base_address == 0 ? VK_WHOLE_SIZE : size,
             .format = format,
         };
+        PipelineAudit::Log(
+            "DESCRIPTOR_WRITE queue={} kind=texel_address address={:#x} base={:#x} offset={} range={} format={}",
+            audit_name, base_address == 0 ? 0 : base_address + offset, base_address, offset,
+            base_address == 0 ? VK_WHOLE_SIZE : size, static_cast<u32>(format));
     }
 
 private:
     const Device& device;
     const size_t frame_payload_size;
     const bool supports_descriptor_buffer;
+    const char* audit_name;
     bool use_descriptor_buffer{false};
     size_t frame_index{0};
     DescriptorUpdateEntry* payload_cursor = nullptr;

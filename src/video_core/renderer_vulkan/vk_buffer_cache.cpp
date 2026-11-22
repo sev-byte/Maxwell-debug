@@ -12,6 +12,7 @@
 
 #include "video_core/buffer_cache/buffer_cache_base.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
+#include "video_core/renderer_vulkan/vk_pipeline_audit.h"
 
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -117,11 +118,27 @@ Buffer::Buffer(BufferCacheRuntime& runtime, DAddr cpu_addr_, u64 size_bytes_,
     if (device->IsBufferDeviceAddressSupported()) {
         device_address = device->GetLogical().GetBufferDeviceAddress(*buffer);
     }
+    PipelineAudit::Log(
+        "BUFFER_CREATE buffer={:#x} guest_addr={:#x} size={} sparse_compatible={} device_address={:#x}",
+        PipelineAudit::HandleValue(Handle()), CpuAddr(), SizeBytes(), sparse_compatible,
+        device_address);
 }
 
 void Buffer::MarkUsage(u64 offset, u64 size) noexcept {
+    const u64 tick = scheduler->CurrentTick();
     tracker.Track(offset, size);
-    last_usage_tick = scheduler->CurrentTick();
+    last_usage_tick = tick;
+    PipelineAudit::Log(
+        "BUFFER_USAGE buffer={:#x} guest_addr={:#x} size={} offset={} range={} tick={}",
+        PipelineAudit::HandleValue(Handle()), CpuAddr(), SizeBytes(), offset, size, tick);
+}
+
+void Buffer::ResetUsageTracking() noexcept {
+    const u64 tick = scheduler->CurrentTick();
+    PipelineAudit::Log(
+        "BUFFER_USAGE_RESET buffer={:#x} guest_addr={:#x} size={} previous_usage_tick={} reset_tick={}",
+        PipelineAudit::HandleValue(Handle()), CpuAddr(), SizeBytes(), last_usage_tick, tick);
+    tracker.Reset();
 }
 
 VkBufferView Buffer::View(u32 offset, u32 size, VideoCore::Surface::PixelFormat format) {
@@ -437,12 +454,26 @@ void BufferCacheRuntime::Finish() {
 bool BufferCacheRuntime::CanReorderUpload(const Buffer& buffer,
                                           std::span<const VideoCommon::BufferCopy> copies) {
     if (Settings::values.disable_buffer_reorder) {
+        PipelineAudit::Log(
+            "UPLOAD_REORDER_DECISION buffer={:#x} guest_addr={:#x} reason=setting_disabled result=serial tick={} last_usage_tick={}",
+            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), CurrentTick(),
+            buffer.LastUsageTick());
         return false;
     }
-    const bool can_use_upload_cmdbuf =
-        std::ranges::all_of(copies, [&](const VideoCommon::BufferCopy& copy) {
-            return !buffer.IsRegionUsed(copy.dst_offset, copy.size);
-        });
+    bool can_use_upload_cmdbuf = true;
+    for (const VideoCommon::BufferCopy& copy : copies) {
+        const bool region_used = buffer.IsRegionUsed(copy.dst_offset, copy.size);
+        PipelineAudit::Log(
+            "UPLOAD_REORDER_RANGE buffer={:#x} guest_addr={:#x} dst_offset={} size={} region_used={} tick={} last_usage_tick={}",
+            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), copy.dst_offset,
+            copy.size, region_used, CurrentTick(), buffer.LastUsageTick());
+        can_use_upload_cmdbuf &= !region_used;
+    }
+    PipelineAudit::Log(
+        "UPLOAD_REORDER_DECISION buffer={:#x} guest_addr={:#x} copy_count={} decision={} expected_submit_tick={} last_usage_tick={}",
+        PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), copies.size(),
+        can_use_upload_cmdbuf ? "upload_command_buffer" : "main_command_buffer",
+        CurrentTick() + 1, buffer.LastUsageTick());
     return can_use_upload_cmdbuf;
 }
 
@@ -468,6 +499,24 @@ void BufferCacheRuntime::CopyBuffer(VkBuffer dst_buffer, VkBuffer src_buffer,
     // Measuring a popular game, this number never exceeds the specified size once data is warmed up
     boost::container::small_vector<VkBufferCopy, 8> vk_copies(copies.size());
     std::ranges::transform(copies, vk_copies.begin(), MakeBufferCopy);
+    const bool uses_upload_command_buffer =
+        src_buffer == staging_pool.StreamBuf() && can_reorder_upload;
+    u64 total_bytes = 0;
+    for (size_t index = 0; index < copies.size(); ++index) {
+        total_bytes += copies[index].size;
+        PipelineAudit::Log(
+            "BUFFER_TRANSFER copy_index={} src={:#x} dst={:#x} src_offset={} dst_offset={} size={} path={} barrier={} expected_submit_tick={}",
+            index, PipelineAudit::HandleValue(src_buffer), PipelineAudit::HandleValue(dst_buffer),
+            copies[index].src_offset, copies[index].dst_offset, copies[index].size,
+            uses_upload_command_buffer ? "upload_command_buffer" : "main_command_buffer", barrier,
+            scheduler.CurrentTick() + 1);
+    }
+    PipelineAudit::Log(
+        "BUFFER_TRANSFER_BATCH src={:#x} dst={:#x} copy_count={} total_bytes={} path={} barrier={} can_reorder={} expected_submit_tick={}",
+        PipelineAudit::HandleValue(src_buffer), PipelineAudit::HandleValue(dst_buffer),
+        copies.size(), total_bytes,
+        uses_upload_command_buffer ? "upload_command_buffer" : "main_command_buffer", barrier,
+        can_reorder_upload, scheduler.CurrentTick() + 1);
     if (src_buffer == staging_pool.StreamBuf() && can_reorder_upload) {
         scheduler.RecordWithUploadBuffer([src_buffer, dst_buffer, vk_copies](
                                              vk::CommandBuffer, vk::CommandBuffer upload_cmdbuf) {
@@ -522,6 +571,9 @@ void BufferCacheRuntime::ClearBuffer(VkBuffer dest_buffer, u32 offset, size_t si
     if (dest_buffer == VK_NULL_HANDLE) {
         return;
     }
+    PipelineAudit::Log(
+        "BUFFER_CLEAR dst={:#x} offset={} size={} value={:#x} expected_submit_tick={}",
+        PipelineAudit::HandleValue(dest_buffer), offset, size, value, scheduler.CurrentTick() + 1);
     static constexpr VkMemoryBarrier READ_BARRIER{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
         .pNext = nullptr,

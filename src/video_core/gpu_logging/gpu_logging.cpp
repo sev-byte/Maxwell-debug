@@ -519,6 +519,19 @@ void GPULogger::LogClearOperation(const std::string& clear_info) {
     WriteToLog(log_entry);
 }
 
+bool GPULogger::IsDetailedAuditEnabled() const noexcept {
+    return initialized && current_level >= LogLevel::Verbose;
+}
+
+void GPULogger::LogPipelineAuditEvent(const std::string& audit_info) {
+    if (!IsDetailedAuditEnabled()) {
+        return;
+    }
+    const auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch());
+    WriteToLog(fmt::format("[{}] [PipelineAudit] {}\n", FormatTimestamp(timestamp), audit_info));
+}
+
 GPUStateSnapshot GPULogger::GetCurrentSnapshot() {
     GPUStateSnapshot snapshot;
     snapshot.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(

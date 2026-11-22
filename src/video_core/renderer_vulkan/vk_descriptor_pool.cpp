@@ -12,6 +12,7 @@
 #include "common/common_types.h"
 #include <ranges>
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
+#include "video_core/renderer_vulkan/vk_pipeline_audit.h"
 #include "video_core/renderer_vulkan/vk_resource_pool.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/vulkan_common/vulkan_device.h"
@@ -85,6 +86,10 @@ static void AllocatePool(const Device& device, DescriptorBank& bank) {
         .poolSizeCount = static_cast<u32>(pool_cursor),
         .pPoolSizes = std::data(pool_sizes),
     }));
+    PipelineAudit::Log(
+        "DESCRIPTOR_POOL_CREATE pool={:#x} max_sets={} uniform={} storage={} texel={} image_buffer={} sampled_image={} storage_image={}",
+        PipelineAudit::HandleValue(*bank.pools.back()), sets_per_pool, info.uniform_buffers,
+        info.storage_buffers, info.texture_buffers, info.image_buffers, info.textures, info.images);
 }
 
 DescriptorAllocator::DescriptorAllocator(const Device& device_, MasterSemaphore& master_semaphore_,
@@ -94,7 +99,11 @@ DescriptorAllocator::DescriptorAllocator(const Device& device_, MasterSemaphore&
 
 VkDescriptorSet DescriptorAllocator::Commit() {
     const size_t index = CommitResource();
-    return sets[index / SETS_GROW_RATE][index % SETS_GROW_RATE];
+    const VkDescriptorSet descriptor_set = sets[index / SETS_GROW_RATE][index % SETS_GROW_RATE];
+    PipelineAudit::Log("DESCRIPTOR_SET_COMMIT set={:#x} layout={:#x} index={}",
+                       PipelineAudit::HandleValue(descriptor_set),
+                       PipelineAudit::HandleValue(layout), index);
+    return descriptor_set;
 }
 
 void DescriptorAllocator::Allocate(size_t begin, size_t end) {
@@ -102,6 +111,9 @@ void DescriptorAllocator::Allocate(size_t begin, size_t end) {
 }
 
 vk::DescriptorSets DescriptorAllocator::AllocateDescriptors(size_t count) {
+    PipelineAudit::Log(
+        "DESCRIPTOR_SET_ALLOCATE count={} layout={:#x} pool={:#x}", count,
+        PipelineAudit::HandleValue(layout), PipelineAudit::HandleValue(*bank->pools.back()));
     const std::vector<VkDescriptorSetLayout> layouts(count, layout);
     VkDescriptorSetAllocateInfo allocate_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -155,6 +167,10 @@ DescriptorBank& DescriptorPool::Bank(const Device& device, const DescriptorBankI
 
     auto& bank = *banks.emplace_back(std::make_unique<DescriptorBank>());
     bank.info = reqs;
+    PipelineAudit::Log(
+        "DESCRIPTOR_BANK_CREATE index={} score={} uniform={} storage={} texel={} image_buffer={} sampled_image={} storage_image={}",
+        banks.size() - 1, reqs.score, reqs.uniform_buffers, reqs.storage_buffers,
+        reqs.texture_buffers, reqs.image_buffers, reqs.textures, reqs.images);
     AllocatePool(device, bank);
     return bank;
 }

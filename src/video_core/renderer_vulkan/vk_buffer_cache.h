@@ -163,6 +163,9 @@ public:
                                           [[maybe_unused]] u32 binding_index,
                                           u32 size) {
         const StagingBufferRef ref = staging_pool.Request(size, MemoryUsage::Upload);
+        PipelineAudit::Log(
+            "DESCRIPTOR_CLASS_BIND kind=uniform_buffer_mapped stage={} binding={} buffer={:#x} offset={} range={}",
+            stage, binding_index, PipelineAudit::HandleValue(ref.buffer), ref.offset, size);
         guest_descriptor_queue.AddBuffer(ref.buffer, ref.device_address,
                                          static_cast<u32>(ref.offset), size);
         return ref.mapped_span;
@@ -209,16 +212,28 @@ public:
     }
 
     void BindUniformBuffer(const Buffer& buffer, u32 offset, u32 size) {
+        PipelineAudit::Log(
+            "DESCRIPTOR_CLASS_BIND kind=uniform_buffer buffer={:#x} guest_addr={:#x} offset={} range={} tick={}",
+            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), offset, size,
+            scheduler.CurrentTick());
         BindBuffer(buffer, offset, size);
     }
 
     void BindStorageBuffer(const Buffer& buffer, u32 offset, u32 size,
                            [[maybe_unused]] bool is_written) {
+        PipelineAudit::Log(
+            "DESCRIPTOR_CLASS_BIND kind=storage_buffer buffer={:#x} guest_addr={:#x} offset={} range={} is_written={} tick={}",
+            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), offset, size, is_written,
+            scheduler.CurrentTick());
         BindBuffer(buffer, offset, size);
     }
 
     void BindTextureBuffer(Buffer& buffer, u32 offset, u32 size,
                            VideoCore::Surface::PixelFormat format) {
+        PipelineAudit::Log(
+            "DESCRIPTOR_CLASS_BIND kind=texel_buffer buffer={:#x} guest_addr={:#x} offset={} range={} format={} tick={}",
+            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), offset, size,
+            static_cast<u32>(format), scheduler.CurrentTick());
         if (guest_descriptor_queue.UsesDescriptorBuffer()) {
             const VkDeviceAddress address = buffer.DeviceAddress();
             const VkFormat vk_format = address == 0 ? VK_FORMAT_UNDEFINED : TexelBufferFormat(format);
