@@ -367,7 +367,7 @@ def main() -> int:
             f"VkBuffer={fields.get('buffer', fields.get('descriptor_buffer', '?'))} "
             f"VkDeviceAddress={fields.get('vk_device_address', '?')} "
             f"offset={fields.get('offset', fields.get('source_offset', '?'))} "
-            f"range={fields.get('range', fields.get('segment_size', fields.get('guest_total_range', '?'))}"
+            f"range={fields.get('range', fields.get('segment_size', fields.get('guest_total_range', '?')))}"
         )
     print(f"Descriptor writes for target shader: {target_compute_writes}")
     print(f"Descriptor writes resolved to a resource identity: {resolved_writes}")
