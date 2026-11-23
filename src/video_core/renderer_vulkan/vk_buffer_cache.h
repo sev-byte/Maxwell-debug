@@ -61,9 +61,7 @@ public:
 
     void MarkUsage(u64 offset, u64 size) noexcept;
 
-    void ResetUsageTracking() noexcept {
-        tracker.Reset();
-    }
+    void ResetUsageTracking() noexcept;
 
     [[nodiscard]] u64 LastUsageTick() const noexcept {
         return last_usage_tick;
