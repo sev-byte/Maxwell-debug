@@ -136,10 +136,11 @@ android {
             }
 
             if (isNightly) {
-                applicationIdSuffix = ".nightly"
-                manifestPlaceholders += mapOf("appNameSuffix" to " Nightly")
+                applicationIdSuffix = ".pipelineaudit.nightly"
+                manifestPlaceholders += mapOf("appNameSuffix" to " Pipeline Audit Nightly")
             } else {
-                manifestPlaceholders += mapOf("appNameSuffix" to "")
+                applicationIdSuffix = ".pipelineaudit"
+                manifestPlaceholders += mapOf("appNameSuffix" to " Pipeline Audit")
             }
 
             isMinifyEnabled = true
