@@ -171,6 +171,20 @@ public:
         return ref.mapped_span;
     }
 
+    std::span<u8> BindMappedUniformBuffer(size_t stage, u32 binding_index, u32 size,
+                                         GPUVAddr guest_gpu_addr, DAddr backing_cpu_addr) {
+        const StagingBufferRef ref = staging_pool.Request(size, MemoryUsage::Upload);
+        PipelineAudit::ScopedResource resource{
+            "uniform_buffer_mapped", guest_gpu_addr, backing_cpu_addr,
+            PipelineAudit::HandleValue(ref.buffer), static_cast<u64>(ref.offset), size};
+        PipelineAudit::Log(
+            "DESCRIPTOR_CLASS_BIND kind=uniform_buffer_mapped stage={} binding={} buffer={:#x} offset={} range={}",
+            stage, binding_index, PipelineAudit::HandleValue(ref.buffer), ref.offset, size);
+        guest_descriptor_queue.AddBuffer(ref.buffer, ref.device_address,
+                                         static_cast<u32>(ref.offset), size);
+        return ref.mapped_span;
+    }
+
     [[nodiscard]] VkDeviceSize SparseAlignmentFor(bool sparse_compatible) const noexcept {
         if (!sparse_compatible || !multi_range_buffers.use_sparse) {
             return 0;
@@ -201,7 +215,20 @@ public:
         multi_range_total += size;
     }
 
-    bool BindMultiRangeStorageBuffer(u64 key, bool is_written);
+    bool BindMultiRangeStorageBuffer(u64 key, bool is_written, GPUVAddr guest_gpu_addr = 0,
+                                     u32 guest_size = 0);
+
+    void LogComputeMultiRangeSegment(GPUVAddr guest_base, u32 guest_total_size,
+                                     u32 segment_index, u32 guest_offset,
+                                     DAddr backing_cpu_addr, const Buffer& buffer,
+                                     u32 buffer_offset, u32 segment_size,
+                                     bool is_written) const noexcept {
+        PipelineAudit::Log(
+            "COMPUTE_MULTI_RANGE_SEGMENT guest_base_gpu_addr={:#x} guest_total_range={} segment_index={} guest_range_offset={} backing_cpu_addr={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} source_offset={} segment_size={} is_written={}",
+            guest_base, guest_total_size, segment_index, guest_offset, backing_cpu_addr,
+            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(),
+            buffer.DeviceAddress(), buffer_offset, segment_size, is_written);
+    }
 
     void InvalidateMultiRange(u64 key) {
         multi_range_buffers.Invalidate(key);
@@ -213,27 +240,41 @@ public:
 
     void BindUniformBuffer(const Buffer& buffer, u32 offset, u32 size) {
         PipelineAudit::Log(
-            "DESCRIPTOR_CLASS_BIND kind=uniform_buffer buffer={:#x} guest_addr={:#x} offset={} range={} tick={}",
-            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), offset, size,
-            scheduler.CurrentTick());
+            "DESCRIPTOR_CLASS_BIND kind=uniform_buffer buffer={:#x} backing_cpu_addr={:#x} offset={} range={}",
+            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), offset, size);
         BindBuffer(buffer, offset, size);
+    }
+
+    void BindUniformBuffer(const Buffer& buffer, u32 offset, u32 size,
+                           GPUVAddr guest_gpu_addr) {
+        PipelineAudit::ScopedResource resource{"uniform_buffer", guest_gpu_addr, buffer.CpuAddr(),
+                                               PipelineAudit::HandleValue(buffer.Handle()), offset,
+                                               size};
+        BindUniformBuffer(buffer, offset, size);
     }
 
     void BindStorageBuffer(const Buffer& buffer, u32 offset, u32 size,
                            [[maybe_unused]] bool is_written) {
         PipelineAudit::Log(
-            "DESCRIPTOR_CLASS_BIND kind=storage_buffer buffer={:#x} guest_addr={:#x} offset={} range={} is_written={} tick={}",
-            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), offset, size, is_written,
-            scheduler.CurrentTick());
+            "DESCRIPTOR_CLASS_BIND kind=storage_buffer buffer={:#x} backing_cpu_addr={:#x} offset={} range={} is_written={}",
+            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), offset, size, is_written);
         BindBuffer(buffer, offset, size);
+    }
+
+    void BindStorageBuffer(const Buffer& buffer, u32 offset, u32 size, bool is_written,
+                           GPUVAddr guest_gpu_addr) {
+        PipelineAudit::ScopedResource resource{"storage_buffer", guest_gpu_addr, buffer.CpuAddr(),
+                                               PipelineAudit::HandleValue(buffer.Handle()), offset,
+                                               size};
+        BindStorageBuffer(buffer, offset, size, is_written);
     }
 
     void BindTextureBuffer(Buffer& buffer, u32 offset, u32 size,
                            VideoCore::Surface::PixelFormat format) {
         PipelineAudit::Log(
-            "DESCRIPTOR_CLASS_BIND kind=texel_buffer buffer={:#x} guest_addr={:#x} offset={} range={} format={} tick={}",
+            "DESCRIPTOR_CLASS_BIND kind=texel_buffer buffer={:#x} backing_cpu_addr={:#x} offset={} range={} format={}",
             PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(), offset, size,
-            static_cast<u32>(format), scheduler.CurrentTick());
+            static_cast<u32>(format));
         if (guest_descriptor_queue.UsesDescriptorBuffer()) {
             const VkDeviceAddress address = buffer.DeviceAddress();
             const VkFormat vk_format = address == 0 ? VK_FORMAT_UNDEFINED : TexelBufferFormat(format);
@@ -241,6 +282,15 @@ public:
         } else {
             guest_descriptor_queue.AddTexelBuffer(buffer.View(offset, size, format));
         }
+    }
+
+    void BindTextureBuffer(Buffer& buffer, u32 offset, u32 size,
+                           VideoCore::Surface::PixelFormat format, GPUVAddr guest_gpu_addr,
+                           bool is_image) {
+        PipelineAudit::ScopedResource resource{
+            is_image ? "storage_image_buffer" : "texel_buffer", guest_gpu_addr, buffer.CpuAddr(),
+            PipelineAudit::HandleValue(buffer.Handle()), offset, size};
+        BindTextureBuffer(buffer, offset, size, format);
     }
 
     bool ShouldLimitDynamicStorageBuffers() const {
@@ -259,6 +309,17 @@ private:
         } else {
             guest_descriptor_queue.AddBuffer(handle, buffer.DeviceAddress(), offset, size);
         }
+    }
+
+    void LogComputeBufferBinding(const char* kind, size_t descriptor_index,
+                                 GPUVAddr guest_gpu_addr, DAddr backing_cpu_addr,
+                                 const Buffer& buffer, u32 offset, u32 size,
+                                 bool is_written) const noexcept {
+        PipelineAudit::Log(
+            "COMPUTE_BUFFER_BIND kind={} descriptor_index={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} offset={} range={} is_written={}",
+            kind, descriptor_index, guest_gpu_addr, backing_cpu_addr,
+            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(),
+            buffer.DeviceAddress(), offset, size, is_written);
     }
 
     VkFormat TexelBufferFormat(VideoCore::Surface::PixelFormat format) const;

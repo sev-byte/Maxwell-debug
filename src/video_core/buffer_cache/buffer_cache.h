@@ -1056,6 +1056,7 @@ bool BufferCache<P>::BindMultiRangeStorage(const Binding& binding, bool is_writt
         }
         const u64 key = (static_cast<u64>(gpu_memory->GetID()) << 48) ^ binding.gpu_addr;
         runtime.ResetMultiRange();
+        u32 guest_offset = 0;
         for (u32 index = 0; index < binding.segment_count; ++index) {
             const MultiRangeSegment& segment = pool[binding.segment_first + index];
             Buffer& buffer = slot_buffers[segment.buffer_id];
@@ -1064,13 +1065,32 @@ bool BufferCache<P>::BindMultiRangeStorage(const Binding& binding, bool is_writt
                 runtime.InvalidateMultiRange(key);
             }
             const u32 offset = buffer.Offset(segment.device_addr);
+            if constexpr (requires {
+                              runtime.LogComputeMultiRangeSegment(binding.gpu_addr, binding.size,
+                                                                  index, guest_offset,
+                                                                  segment.device_addr, buffer,
+                                                                  offset, segment.size, is_written);
+                          }) {
+                runtime.LogComputeMultiRangeSegment(binding.gpu_addr, binding.size, index,
+                                                     guest_offset, segment.device_addr, buffer,
+                                                     offset, segment.size, is_written);
+            }
             buffer.MarkUsage(offset, segment.size);
             if (is_written) {
                 MarkWrittenBuffer(segment.buffer_id, segment.device_addr, segment.size);
             }
             runtime.PushMultiRangeSource(buffer, offset, segment.size);
+            guest_offset += segment.size;
         }
-        return runtime.BindMultiRangeStorageBuffer(key, is_written);
+        if constexpr (requires {
+                          runtime.BindMultiRangeStorageBuffer(key, is_written, binding.gpu_addr,
+                                                              binding.size);
+                      }) {
+            return runtime.BindMultiRangeStorageBuffer(key, is_written, binding.gpu_addr,
+                                                       binding.size);
+        } else {
+            return runtime.BindMultiRangeStorageBuffer(key, is_written);
+        }
     } else {
         return false;
     }
@@ -1196,19 +1216,43 @@ void BufferCache<P>::BindHostComputeUniformBuffers() {
         }();
         if constexpr (!IS_OPENGL) {
             if (needs_alignment_stream) {
-                const std::span<u8> span =
-                    runtime.BindMappedUniformBuffer(0, binding_index, size);
+                const std::span<u8> span = [&]() {
+                    if constexpr (requires {
+                                      runtime.BindMappedUniformBuffer(0, binding_index, size,
+                                                                       binding.gpu_addr,
+                                                                       binding.device_addr);
+                                  }) {
+                        return runtime.BindMappedUniformBuffer(0, binding_index, size,
+                                                               binding.gpu_addr,
+                                                               binding.device_addr);
+                    } else {
+                        return runtime.BindMappedUniformBuffer(0, binding_index, size);
+                    }
+                }();
                 device_memory.ReadBlockUnsafe(binding.device_addr, span.data(), size);
                 return;
             }
         }
 
         SynchronizeBuffer(buffer, binding.device_addr, size);
+        if constexpr (requires {
+                          runtime.LogComputeBufferBinding("uniform_buffer", index, binding.gpu_addr,
+                                                          binding.device_addr, buffer, offset,
+                                                          size, false);
+                      }) {
+            runtime.LogComputeBufferBinding("uniform_buffer", index, binding.gpu_addr,
+                                             binding.device_addr, buffer, offset, size, false);
+        }
 
         buffer.MarkUsage(offset, size);
         if constexpr (NEEDS_BIND_UNIFORM_INDEX) {
             runtime.BindComputeUniformBuffer(binding_index, buffer, offset, size);
             ++binding_index;
+        } else if constexpr (requires {
+                                 runtime.BindUniformBuffer(buffer, offset, size,
+                                                           binding.gpu_addr);
+                             }) {
+            runtime.BindUniformBuffer(buffer, offset, size, binding.gpu_addr);
         } else {
             runtime.BindUniformBuffer(buffer, offset, size);
         }
@@ -1231,6 +1275,14 @@ void BufferCache<P>::BindHostComputeStorageBuffers() {
         SynchronizeBuffer(buffer, binding.device_addr, size);
 
         const u32 offset = buffer.Offset(binding.device_addr);
+        if constexpr (requires {
+                          runtime.LogComputeBufferBinding("storage_buffer", index, binding.gpu_addr,
+                                                          binding.device_addr, buffer, offset,
+                                                          size, is_written);
+                      }) {
+            runtime.LogComputeBufferBinding("storage_buffer", index, binding.gpu_addr,
+                                             binding.device_addr, buffer, offset, size, is_written);
+        }
         buffer.MarkUsage(offset, size);
 
         if (is_written) {
@@ -1240,6 +1292,11 @@ void BufferCache<P>::BindHostComputeStorageBuffers() {
         if constexpr (NEEDS_BIND_STORAGE_INDEX) {
             runtime.BindComputeStorageBuffer(binding_index, buffer, offset, size, is_written);
             ++binding_index;
+        } else if constexpr (requires {
+                                 runtime.BindStorageBuffer(buffer, offset, size, is_written,
+                                                           binding.gpu_addr);
+                             }) {
+            runtime.BindStorageBuffer(buffer, offset, size, is_written, binding.gpu_addr);
         } else {
             runtime.BindStorageBuffer(buffer, offset, size, is_written);
         }
@@ -1262,13 +1319,35 @@ void BufferCache<P>::BindHostComputeTextureBuffers() {
 
         const u32 offset = buffer.Offset(binding.device_addr);
         const PixelFormat format = binding.format;
+        const bool is_image =
+            ((channel_state->image_compute_texture_buffers >> index) & 1) != 0;
+        if constexpr (requires {
+                          runtime.LogComputeBufferBinding("texel_buffer", index, binding.gpu_addr,
+                                                          binding.device_addr, buffer, offset,
+                                                          size, is_written);
+                      }) {
+            runtime.LogComputeBufferBinding(
+                is_image ? "storage_image_buffer" : "texel_buffer", index, binding.gpu_addr,
+                binding.device_addr, buffer, offset, size, is_written);
+        }
         buffer.MarkUsage(offset, size);
         if constexpr (SEPARATE_IMAGE_BUFFERS_BINDINGS) {
-            if (((channel_state->image_compute_texture_buffers >> index) & 1) != 0) {
+            if (is_image) {
                 runtime.BindImageBuffer(buffer, offset, size, format);
+            } else if constexpr (requires {
+                                     runtime.BindTextureBuffer(buffer, offset, size, format,
+                                                               binding.gpu_addr, is_image);
+                                 }) {
+                runtime.BindTextureBuffer(buffer, offset, size, format, binding.gpu_addr,
+                                          is_image);
             } else {
                 runtime.BindTextureBuffer(buffer, offset, size, format);
             }
+        } else if constexpr (requires {
+                                 runtime.BindTextureBuffer(buffer, offset, size, format,
+                                                           binding.gpu_addr, is_image);
+                             }) {
+            runtime.BindTextureBuffer(buffer, offset, size, format, binding.gpu_addr, is_image);
         } else {
             runtime.BindTextureBuffer(buffer, offset, size, format);
         }
@@ -1492,6 +1571,7 @@ void BufferCache<P>::UpdateComputeUniformBuffers() {
             const std::optional<DAddr> device_addr = gpu_memory->GpuToCpuAddress(cbuf.Address());
             if (device_addr) {
                 binding.device_addr = *device_addr;
+                binding.gpu_addr = cbuf.Address();
                 binding.size = cbuf.size;
             }
         }
@@ -2087,6 +2167,7 @@ TextureBufferBinding BufferCache<P>::GetTextureBufferBinding(GPUVAddr gpu_addr, 
                                                              PixelFormat format) {
     const std::optional<DAddr> device_addr = gpu_memory->GpuToCpuAddress(gpu_addr);
     TextureBufferBinding binding;
+    binding.gpu_addr = gpu_addr;
     if (!device_addr || size == 0) {
         binding.device_addr = 0;
         binding.size = 0;

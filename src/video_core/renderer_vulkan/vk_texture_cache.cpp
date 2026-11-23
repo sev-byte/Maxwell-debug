@@ -1265,6 +1265,13 @@ void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst
                                     const Region2D& dst_region, const Region2D& src_region,
                                     Tegra::Engines::Fermi2D::Filter filter,
                                     Tegra::Engines::Fermi2D::Operation operation) {
+    PipelineAudit::Log(
+        "IMAGE_BLIT_REQUEST src_image={:#x} src_view={:#x} src_gpu_addr={:#x} dst_image={:#x} dst_view={:#x} dst_gpu_addr={:#x} src_format={} dst_format={} src_samples={} dst_samples={} expected_submit_tick={}",
+        PipelineAudit::HandleValue(src.ImageHandle()), PipelineAudit::HandleValue(src.RenderTarget()),
+        src.GpuAddr(), PipelineAudit::HandleValue(dst.ImageHandle()),
+        PipelineAudit::HandleValue(dst.RenderTarget()), dst.GpuAddr(),
+        static_cast<u32>(src.format), static_cast<u32>(dst.format),
+        static_cast<u32>(src.Samples()), static_cast<u32>(dst.Samples()), scheduler.CurrentTick());
     const VkImageAspectFlags aspect_mask = ImageAspectMask(src.format);
     const bool is_dst_msaa = dst.Samples() != VK_SAMPLE_COUNT_1_BIT;
     const bool is_src_msaa = src.Samples() != VK_SAMPLE_COUNT_1_BIT;
@@ -1538,6 +1545,12 @@ bool TextureCacheRuntime::IsFormatScalable(PixelFormat format) {
 
 void TextureCacheRuntime::CopyImage(Image& dst, Image& src,
                                     std::span<const VideoCommon::ImageCopy> copies) {
+    PipelineAudit::Log(
+        "IMAGE_COPY_REQUEST src_image={:#x} dst_image={:#x} src_gpu_addr={:#x} dst_gpu_addr={:#x} src_format={} dst_format={} src_samples={} dst_samples={} copy_count={} expected_submit_tick={}",
+        PipelineAudit::HandleValue(src.Handle()), PipelineAudit::HandleValue(dst.Handle()),
+        src.gpu_addr, dst.gpu_addr, static_cast<u32>(src.info.format),
+        static_cast<u32>(dst.info.format), src.info.num_samples, dst.info.num_samples,
+        copies.size(), scheduler.CurrentTick());
     if (ENABLE_MSAA_RESOLVE_CONSUME) {
         InvalidateResolveShadow(dst.Handle());
     }
@@ -1976,6 +1989,10 @@ void Image::AllocateComputeUnswizzleBuffer(u32 max_slices) {
 
 void Image::UploadMemory(VkBuffer buffer, VkDeviceSize offset,
                          std::span<const VideoCommon::BufferImageCopy> copies) {
+    PipelineAudit::Log(
+        "BUFFER_TO_IMAGE_REQUEST buffer={:#x} image={:#x} guest_gpu_addr={:#x} offset={} copy_count={} expected_submit_tick={}",
+        PipelineAudit::HandleValue(buffer), PipelineAudit::HandleValue(Handle()), gpu_addr,
+        offset, copies.size(), scheduler->CurrentTick());
     // TODO: Move this to another API
     if (ENABLE_MSAA_RESOLVE_CONSUME && runtime != nullptr) {
         runtime->InvalidateResolveShadow(Handle());
@@ -2090,6 +2107,15 @@ void Image::DownloadMemory(VkBuffer buffer, size_t offset,
 
 void Image::DownloadMemory(std::span<VkBuffer> buffers_span, std::span<size_t> offsets_span,
                             std::span<const VideoCommon::BufferImageCopy> copies) {
+    PipelineAudit::Log(
+        "IMAGE_TO_BUFFER_REQUEST image={:#x} guest_gpu_addr={:#x} copy_count={} destination_count={} expected_submit_tick={}",
+        PipelineAudit::HandleValue(Handle()), gpu_addr, copies.size(), buffers_span.size(),
+        scheduler->CurrentTick());
+    for (size_t index = 0; index < buffers_span.size() && index < offsets_span.size(); ++index) {
+        PipelineAudit::Log(
+            "IMAGE_TO_BUFFER_DESTINATION index={} buffer={:#x} offset={}", index,
+            PipelineAudit::HandleValue(buffers_span[index]), offsets_span[index]);
+    }
     const bool is_rescaled = True(flags & ImageFlagBits::Rescaled);
     if (is_rescaled) {
         ScaleDown();

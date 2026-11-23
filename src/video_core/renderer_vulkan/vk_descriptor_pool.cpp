@@ -98,11 +98,20 @@ DescriptorAllocator::DescriptorAllocator(const Device& device_, MasterSemaphore&
       layout{layout_} {}
 
 VkDescriptorSet DescriptorAllocator::Commit() {
-    const size_t index = CommitResource();
+    u64 previous_tick{};
+    u64 observed_gpu_tick{};
+    u64 assigned_tick{};
+    const size_t index = CommitResource(&previous_tick, &observed_gpu_tick, &assigned_tick);
     const VkDescriptorSet descriptor_set = sets[index / SETS_GROW_RATE][index % SETS_GROW_RATE];
-    PipelineAudit::Log("DESCRIPTOR_SET_COMMIT set={:#x} layout={:#x} index={}",
-                       PipelineAudit::HandleValue(descriptor_set),
-                       PipelineAudit::HandleValue(layout), index);
+    PipelineAudit::Log(
+        "DESCRIPTOR_SET_SLOT set={:#x} layout={:#x} index={} previous_use_tick={} observed_completed_tick={} assigned_use_tick={} first_use={} reuse_safe={}",
+        PipelineAudit::HandleValue(descriptor_set), PipelineAudit::HandleValue(layout), index,
+        previous_tick, observed_gpu_tick, assigned_tick, previous_tick == 0,
+        previous_tick == 0 || observed_gpu_tick >= previous_tick);
+    PipelineAudit::Log(
+        "DESCRIPTOR_SET_COMMIT set={:#x} layout={:#x} index={} assigned_use_tick={}",
+        PipelineAudit::HandleValue(descriptor_set), PipelineAudit::HandleValue(layout), index,
+        assigned_tick);
     return descriptor_set;
 }
 

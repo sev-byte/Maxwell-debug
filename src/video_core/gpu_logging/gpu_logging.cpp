@@ -133,6 +133,20 @@ void GPULogger::Shutdown() {
         return;
     }
 
+    u64 last_audit_sequence{};
+    {
+        std::lock_guard audit_lock(audit_mutex);
+        last_audit_sequence = audit_sequence;
+    }
+    const auto audit_attempted = audit_attempted_records.load(std::memory_order_relaxed);
+    const auto audit_written = audit_written_records.load(std::memory_order_relaxed);
+    const auto audit_dropped = audit_dropped_records.load(std::memory_order_relaxed);
+    if (audit_attempted != 0 || audit_dropped != 0) {
+        WriteToLog(fmt::format(
+            "[PipelineAuditSummary] attempted={} written={} dropped={} last_sequence={}\n",
+            audit_attempted, audit_written, audit_dropped, last_audit_sequence));
+    }
+
     // Write statistics
     const auto stats = fmt::format(
         "\n=== GPU Logging Statistics ===\n"
@@ -523,13 +537,33 @@ bool GPULogger::IsDetailedAuditEnabled() const noexcept {
     return initialized && current_level >= LogLevel::Verbose;
 }
 
-void GPULogger::LogPipelineAuditEvent(const std::string& audit_info) {
+void GPULogger::LogPipelineAuditEvent(const std::string& audit_info) noexcept {
     if (!IsDetailedAuditEnabled()) {
         return;
     }
-    const auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::steady_clock::now().time_since_epoch());
-    WriteToLog(fmt::format("[{}] [PipelineAudit] {}\n", FormatTimestamp(timestamp), audit_info));
+    audit_attempted_records.fetch_add(1, std::memory_order_relaxed);
+    try {
+        // Serialize sequence assignment with the actual write. Audit file order therefore
+        // matches the monotonically increasing global sequence number.
+        std::lock_guard audit_lock(audit_mutex);
+        const u64 sequence = ++audit_sequence;
+        const auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch());
+        const auto line = fmt::format("[{}] [PipelineAudit] seq={} {}\n",
+                                      FormatTimestamp(timestamp), sequence, audit_info);
+        if (WriteToLog(line) == line.size()) {
+            audit_written_records.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            audit_dropped_records.fetch_add(1, std::memory_order_relaxed);
+        }
+    } catch (...) {
+        audit_dropped_records.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+void GPULogger::NotePipelineAuditDrop() noexcept {
+    audit_attempted_records.fetch_add(1, std::memory_order_relaxed);
+    audit_dropped_records.fetch_add(1, std::memory_order_relaxed);
 }
 
 GPUStateSnapshot GPULogger::GetCurrentSnapshot() {
@@ -704,19 +738,21 @@ bool GPULogger::IsInitialized() const {
     return initialized;
 }
 
-void GPULogger::WriteToLog(const std::string& message) {
+size_t GPULogger::WriteToLog(const std::string& message) {
     if (!gpu_log_file || !gpu_log_file->IsOpen()) {
-        return;
+        return 0;
     }
 
     std::lock_guard lock(file_mutex);
-    bytes_written += gpu_log_file->WriteString(message);
+    const size_t written = gpu_log_file->WriteString(message);
+    bytes_written += written;
 
     // Flush on errors or if we've written a lot
     using namespace Common::Literals;
     if (bytes_written % (1_MiB) == 0) {
         gpu_log_file->Flush();
     }
+    return written;
 }
 
 std::string GPULogger::FormatTimestamp(std::chrono::microseconds timestamp) const {

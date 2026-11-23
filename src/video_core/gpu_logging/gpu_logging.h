@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -114,7 +115,8 @@ public:
     void LogClearOperation(const std::string& clear_info);
 
     // High-detail, observational renderer diagnostics. Enabled only at Verbose GPU log level.
-    void LogPipelineAuditEvent(const std::string& audit_info);
+    void LogPipelineAuditEvent(const std::string& audit_info) noexcept;
+    void NotePipelineAuditDrop() noexcept;
     [[nodiscard]] bool IsDetailedAuditEnabled() const noexcept;
 
     // Crash handling
@@ -139,7 +141,7 @@ private:
     ~GPULogger();
 
     // Helper functions
-    void WriteToLog(const std::string& message);
+    size_t WriteToLog(const std::string& message);
     void RotateLogFile();
     std::string FormatTimestamp(std::chrono::microseconds timestamp) const;
     std::string FormatMemorySize(u64 bytes) const;
@@ -169,6 +171,11 @@ private:
     // File backend for GPU logs
     std::unique_ptr<Common::FS::IOFile> gpu_log_file;
     mutable std::mutex file_mutex;
+    mutable std::mutex audit_mutex;
+    u64 audit_sequence = 0;
+    std::atomic<u64> audit_attempted_records{0};
+    std::atomic<u64> audit_written_records{0};
+    std::atomic<u64> audit_dropped_records{0};
     u64 bytes_written = 0;
 
     // Feature flags

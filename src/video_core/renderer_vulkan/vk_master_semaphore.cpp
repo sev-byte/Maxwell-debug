@@ -9,6 +9,7 @@
 #include <ranges>
 #include "common/settings.h"
 #include "video_core/renderer_vulkan/vk_master_semaphore.h"
+#include "video_core/renderer_vulkan/vk_pipeline_audit.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 
@@ -74,6 +75,10 @@ void MasterSemaphore::Refresh() {
         }
     } while (!gpu_tick.compare_exchange_weak(this_tick, counter, std::memory_order_release,
                                              std::memory_order_relaxed));
+    if (counter > this_tick) {
+        PipelineAudit::Log("GPU_TICK_COMPLETE tick={} previous_completed_tick={} source=timeline_refresh",
+                           counter, this_tick);
+    }
 }
 
 void MasterSemaphore::Wait(u64 tick) {
@@ -348,11 +353,16 @@ void MasterSemaphore::WaitThread(std::stop_token token) {
         fence.Wait();
         fence.Reset();
 
+        u64 previous_completed_tick{};
         {
             std::scoped_lock lock{free_mutex};
             free_queue.push_front(std::move(fence));
+            previous_completed_tick = gpu_tick.load(std::memory_order_relaxed);
             gpu_tick.store(host_tick, std::memory_order_release);
         }
+        PipelineAudit::Log(
+            "GPU_TICK_COMPLETE tick={} previous_completed_tick={} source=fence_wait_thread",
+            host_tick, previous_completed_tick);
         gpu_tick.notify_one();
     }
 }

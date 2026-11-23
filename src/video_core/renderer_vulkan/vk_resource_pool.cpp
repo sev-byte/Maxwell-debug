@@ -8,17 +8,30 @@
 
 #include "video_core/renderer_vulkan/vk_master_semaphore.h"
 #include "video_core/renderer_vulkan/vk_resource_pool.h"
+#include "video_core/renderer_vulkan/vk_pipeline_audit.h"
 
 namespace Vulkan {
 
 ResourcePool::ResourcePool(MasterSemaphore& master_semaphore_, size_t grow_step_)
     : master_semaphore{&master_semaphore_}, grow_step{grow_step_} {}
 
-size_t ResourcePool::CommitResource() {
-    const auto search = [this](size_t begin, size_t end, u64 gpu_tick) -> std::optional<size_t> {
+size_t ResourcePool::CommitResource(u64* previous_tick, u64* observed_gpu_tick,
+                                    u64* assigned_tick) {
+    const auto search = [this, previous_tick, observed_gpu_tick,
+                         assigned_tick](size_t begin, size_t end,
+                                        u64 gpu_tick) -> std::optional<size_t> {
         for (size_t iterator = begin; iterator < end; ++iterator) {
             if (gpu_tick >= ticks[iterator]) {
+                if (previous_tick) {
+                    *previous_tick = ticks[iterator];
+                }
+                if (observed_gpu_tick) {
+                    *observed_gpu_tick = gpu_tick;
+                }
                 ticks[iterator] = master_semaphore->CurrentTick();
+                if (assigned_tick) {
+                    *assigned_tick = ticks[iterator];
+                }
                 return iterator;
             }
         }
@@ -38,8 +51,16 @@ size_t ResourcePool::CommitResource() {
         if (!found) {
             // Both searches failed, the pool is full; handle it.
             const size_t free_resource = ManageOverflow();
-
+            if (previous_tick) {
+                *previous_tick = 0;
+            }
+            if (observed_gpu_tick) {
+                *observed_gpu_tick = master_semaphore->KnownGpuTick();
+            }
             ticks[free_resource] = master_semaphore->CurrentTick();
+            if (assigned_tick) {
+                *assigned_tick = ticks[free_resource];
+            }
             found = free_resource;
         }
     }

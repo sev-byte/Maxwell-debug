@@ -19,6 +19,7 @@
 #include "common/settings.h"
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/gpu_logging/gpu_logging.h"
+#include "video_core/renderer_vulkan/vk_pipeline_audit.h"
 #include "video_core/control/channel_state.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/engines/kepler_compute.h"
@@ -231,6 +232,23 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
       fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache, device, scheduler),
       wfi_event(device.GetLogical().CreateEvent()) {
     scheduler.SetQueryCache(query_cache);
+#ifdef __ANDROID__
+    const u32 capture_log_level = static_cast<u32>(Settings::values.gpu_log_level.GetValue());
+    const bool optimized_vertex_buffers =
+        Settings::values.use_optimized_vertex_buffers.GetValue();
+    LOG_INFO(Render_Vulkan,
+             "[CaptureConfig] renderer=Vulkan gpu_log_level={} use_optimized_vertex_buffers={}",
+             capture_log_level, optimized_vertex_buffers);
+    PipelineAudit::Log(
+        "CAPTURE_CONFIG renderer=Vulkan gpu_log_level={} use_optimized_vertex_buffers={}",
+        capture_log_level, optimized_vertex_buffers);
+#else
+    const u32 capture_log_level = static_cast<u32>(Settings::values.gpu_log_level.GetValue());
+    LOG_INFO(Render_Vulkan, "[CaptureConfig] renderer=Vulkan gpu_log_level={} platform=non_android",
+             capture_log_level);
+    PipelineAudit::Log("CAPTURE_CONFIG renderer=Vulkan gpu_log_level={} platform=non_android",
+                       capture_log_level);
+#endif
 }
 
 RasterizerVulkan::~RasterizerVulkan() {
@@ -707,6 +725,10 @@ void RasterizerVulkan::DispatchCompute() {
         const auto post_op = VideoCommon::ObtainBufferOperation::DiscardWrite;
         const auto [buffer, offset] =
             buffer_cache.ObtainBuffer(*indirect_address, 12, sync_info, post_op);
+        PipelineAudit::Log(
+            "COMPUTE_DISPATCH mode=indirect shader_hash={:#x} indirect_buffer={:#x} offset={} expected_submit_tick={}",
+            pipeline->ShaderHash(), PipelineAudit::HandleValue(buffer->Handle()), offset,
+            scheduler.CurrentTick());
         scheduler.RequestOutsideRenderPassOperationContext();
         scheduler.Record([pipeline, indirect_buffer = buffer->Handle(),
                           indirect_offset = offset](vk::CommandBuffer cmdbuf) {
@@ -722,6 +744,9 @@ void RasterizerVulkan::DispatchCompute() {
     if (dim[0] > max_dim[0] || dim[1] > max_dim[1] || dim[2] > max_dim[2]) {
         return;
     }
+    PipelineAudit::Log(
+        "COMPUTE_DISPATCH mode=direct shader_hash={:#x} groups={}x{}x{} expected_submit_tick={}",
+        pipeline->ShaderHash(), dim[0], dim[1], dim[2], scheduler.CurrentTick());
     scheduler.RequestOutsideRenderPassOperationContext();
     static constexpr VkMemoryBarrier READ_BARRIER{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,

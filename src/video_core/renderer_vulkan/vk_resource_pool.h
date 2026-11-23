@@ -29,7 +29,8 @@ public:
     ResourcePool(const ResourcePool&) = default;
 
 protected:
-    size_t CommitResource();
+    size_t CommitResource(u64* previous_tick = nullptr, u64* observed_gpu_tick = nullptr,
+                          u64* assigned_tick = nullptr);
 
     /// Called when a chunk of resources have to be allocated.
     virtual void Allocate(size_t begin, size_t end) = 0;

@@ -109,16 +109,36 @@ DescriptorBufferRing::Allocation DescriptorBufferRing::Allocate(Scheduler& sched
         return Allocation{};
     }
     const VkDeviceSize needed{Common::AlignUp(size, alignment)};
+    u64 reused_frame_tick = 0;
+    bool reuse_waited = false;
+    bool frame_free_before_wait = true;
     if (frame_reused) {
         frame_reused = false;
-        scheduler.Wait(frame_ticks[frame_index]);
+        reused_frame_tick = frame_ticks[frame_index];
+        frame_free_before_wait = scheduler.IsFree(reused_frame_tick);
+        PipelineAudit::Log(
+            "DESCRIPTOR_BUFFER_REUSE_WAIT_BEGIN frame={} generation={} required_tick={} already_complete={}",
+            frame_index, generation, reused_frame_tick, frame_free_before_wait);
+        scheduler.Wait(reused_frame_tick);
+        reuse_waited = true;
+        const bool frame_free_after_wait = scheduler.IsFree(reused_frame_tick);
+        PipelineAudit::Log(
+            "DESCRIPTOR_BUFFER_REUSE_WAIT_END frame={} generation={} required_tick={} completed_after_wait={}",
+            frame_index, generation, reused_frame_tick, frame_free_after_wait);
     }
     if (cursor + needed > chunk_capacity) {
         if (chunk_cursor + 1 < chunks_per_frame) {
             ++chunk_cursor;
         } else {
             LOG_DEBUG(Render_Vulkan, "Descriptor buffer frame exhausted, stalling on the GPU");
+            const u64 wait_tick = scheduler.CurrentTick();
+            PipelineAudit::Log(
+                "DESCRIPTOR_BUFFER_CHUNK_STALL_BEGIN frame={} chunk={} wait_tick={}",
+                frame_index, chunk_cursor, wait_tick);
             scheduler.Finish();
+            PipelineAudit::Log(
+                "DESCRIPTOR_BUFFER_CHUNK_STALL_END frame={} wait_tick={} completion_observed={}",
+                frame_index, wait_tick, scheduler.IsFree(wait_tick));
             chunk_cursor = 0;
             ++generation;
         }
@@ -135,8 +155,9 @@ DescriptorBufferRing::Allocation DescriptorBufferRing::Allocate(Scheduler& sched
         .generation = generation,
     };
     PipelineAudit::Log(
-        "DESCRIPTOR_BUFFER_ALLOC frame={} chunk={} offset={} size={} aligned_size={} generation={} tick={}",
-        frame_index, chunk, offset, size, needed, generation, frame_ticks[frame_index]);
+        "DESCRIPTOR_BUFFER_ALLOC frame={} chunk={} offset={} size={} aligned_size={} generation={} tick={} reuse_waited={} previous_frame_tick={} frame_free_before_wait={}",
+        frame_index, chunk, offset, size, needed, generation, frame_ticks[frame_index],
+        reuse_waited, reused_frame_tick, frame_free_before_wait);
     return allocation;
 }
 
