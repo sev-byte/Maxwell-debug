@@ -315,6 +315,15 @@ def main() -> int:
     print(f"Descriptor writes resolved to a resource identity: {len(resolved_target_writes)}")
     print(f"Descriptor writes unresolved: {len(unresolved_target_writes)}")
     print(f"Descriptor writes overlapping target buffer: {len(target_descriptor_writes)}")
+    grouped_writes: dict[tuple[int | None, str], int] = defaultdict(int)
+    for event in target_descriptor_writes:
+        f = event["fields"]
+        grouped_writes[(number(f.get("target_hash")), clean(f.get("stage")) or "?")] += 1
+    print("Target descriptor writes grouped by shader hash/stage:")
+    for (shader, stage), count in sorted(grouped_writes.items(),
+                                         key=lambda item: (item[0][0] or 0, item[0][1])):
+        shader_text = "unknown" if shader is None else f"0x{shader:x}"
+        print(f"  shader={shader_text} stage={stage} writes={count}")
     for event in target_descriptor_writes:
         f = event["fields"]
         print(
