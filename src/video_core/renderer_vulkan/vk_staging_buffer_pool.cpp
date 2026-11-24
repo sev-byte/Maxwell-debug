@@ -204,10 +204,11 @@ std::optional<StagingBufferRef> StagingBufferPool::TryGetReservedBuffer(size_t s
     it->deferred = deferred;
     if (usage == MemoryUsage::Download) {
         PipelineAudit::Log(
-            "READBACK_STAGING_REUSE staging_buffer={:#x} allocation_index={} requested_size={} allocation_capacity={} previous_use_tick={} observed_completed_tick={} assigned_tick={} deferred={} reuse_safe={}",
+            "READBACK_STAGING_REUSE staging_buffer={:#x} allocation_index={} requested_size={} allocation_capacity={} host_visible={} host_coherent={} previous_use_tick={} observed_completed_tick={} assigned_tick={} deferred={} reuse_safe={}",
             PipelineAudit::HandleValue(*it->buffer), it->index, size,
-            it->mapped_span.size(), previous_use_tick, observed_completed_tick, it->tick,
-            deferred, observed_completed_tick >= previous_use_tick);
+            it->mapped_span.size(), it->buffer.IsHostVisible(), it->buffer.IsHostCoherent(),
+            previous_use_tick, observed_completed_tick, it->tick, deferred,
+            observed_completed_tick >= previous_use_tick);
     }
     return it->Ref();
 }
@@ -254,9 +255,10 @@ StagingBufferRef StagingBufferPool::CreateStagingBuffer(size_t size, MemoryUsage
     });
     if (usage == MemoryUsage::Download) {
         PipelineAudit::Log(
-            "READBACK_STAGING_CREATE staging_buffer={:#x} allocation_index={} requested_size={} allocation_capacity={} device_address={:#x} deferred={} initial_tick={}",
+            "READBACK_STAGING_CREATE staging_buffer={:#x} allocation_index={} requested_size={} allocation_capacity={} host_visible={} host_coherent={} device_address={:#x} deferred={} initial_tick={}",
             PipelineAudit::HandleValue(*entry.buffer), entry.index, size,
-            entry.mapped_span.size(), entry.device_address, deferred, entry.tick);
+            entry.mapped_span.size(), entry.buffer.IsHostVisible(), entry.buffer.IsHostCoherent(),
+            entry.device_address, deferred, entry.tick);
     }
     return entry.Ref();
 }
