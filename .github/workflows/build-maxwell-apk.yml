@@ -6,6 +6,7 @@ on:
     branches:
       - maxwell-pipeline-transfer-audit-build1
       - maxwell-pipeline-transfer-audit-build2
+      - maxwell-target-shader-skip-test
     paths:
       - 'CMakeLists.txt'
       - 'externals/**'
@@ -81,7 +82,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: maxwell-pipeline-transfer-audit-build2-arm64
+          name: maxwell-target-shader-skip-test-arm64
           path: src/android/app/build/outputs/apk/mainline/release/*.apk
           if-no-files-found: error
           retention-days: 14
