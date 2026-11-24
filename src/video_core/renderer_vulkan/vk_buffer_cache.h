@@ -266,12 +266,15 @@ public:
                                      u32 segment_index, u32 guest_offset,
                                      DAddr backing_cpu_addr, const Buffer& buffer,
                                      u32 buffer_offset, u32 segment_size,
-                                     bool is_written) const noexcept {
+                                     bool is_written) noexcept {
         PipelineAudit::Log(
-            "COMPUTE_MULTI_RANGE_SEGMENT guest_base_gpu_addr={:#x} guest_total_range={} segment_index={} guest_range_offset={} backing_cpu_addr={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} source_offset={} segment_size={} is_written={}",
-            guest_base, guest_total_size, segment_index, guest_offset, backing_cpu_addr,
+            "COMPUTE_MULTI_RANGE_SEGMENT guest_base_gpu_addr={:#x} guest_total_range={} segment_index={} guest_range_offset={} segment_guest_gpu_addr={:#x} backing_cpu_addr={:#x} backing_end_exclusive={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} source_offset={} segment_size={} is_written={}",
+            guest_base, guest_total_size, segment_index, guest_offset,
+            guest_base + guest_offset, backing_cpu_addr, backing_cpu_addr + segment_size,
             PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(),
             buffer.DeviceAddress(), buffer_offset, segment_size, is_written);
+        RegisterTargetRange(guest_base + guest_offset, segment_size, guest_base + guest_offset,
+                            buffer, buffer_offset, segment_index, is_written);
     }
 
     void InvalidateMultiRange(u64 key) {
