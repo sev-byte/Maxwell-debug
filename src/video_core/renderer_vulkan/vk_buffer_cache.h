@@ -263,8 +263,6 @@ public:
         PipelineAudit::ScopedResource resource{"uniform_buffer", guest_gpu_addr, buffer.CpuAddr(),
                                                PipelineAudit::HandleValue(buffer.Handle()), offset,
                                                size};
-        LogComputeBufferBinding("uniform_buffer", guest_gpu_addr, buffer.CpuAddr(),
-                                buffer, offset, size, false);
         BindUniformBuffer(buffer, offset, size);
     }
 
@@ -281,8 +279,6 @@ public:
         PipelineAudit::ScopedResource resource{"storage_buffer", guest_gpu_addr, buffer.CpuAddr(),
                                                PipelineAudit::HandleValue(buffer.Handle()), offset,
                                                size};
-        LogComputeBufferBinding("storage_buffer", guest_gpu_addr, buffer.CpuAddr(),
-                                buffer, offset, size, is_written);
         BindStorageBuffer(buffer, offset, size, is_written);
     }
 
@@ -307,11 +303,6 @@ public:
         PipelineAudit::ScopedResource resource{
             is_image ? "storage_image_buffer" : "texel_buffer", guest_gpu_addr, buffer.CpuAddr(),
             PipelineAudit::HandleValue(buffer.Handle()), offset, size};
-        PipelineAudit::Log(
-            "COMPUTE_BUFFER_BIND kind={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} offset={} range={} access=not_recorded",
-            is_image ? "storage_image_buffer" : "texel_buffer", guest_gpu_addr,
-            buffer.CpuAddr(), PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(),
-            buffer.DeviceAddress(), offset, size);
         BindTextureBuffer(buffer, offset, size, format);
     }
 
@@ -323,6 +314,17 @@ public:
         return max_dynamic_storage_buffers;
     }
 
+    void LogComputeBufferBinding(const char* kind, size_t descriptor_index,
+                                 GPUVAddr guest_gpu_addr, DAddr backing_cpu_addr,
+                                 const Buffer& buffer, u32 offset, u32 size,
+                                 bool is_written) const noexcept {
+        PipelineAudit::Log(
+            "COMPUTE_BUFFER_BIND kind={} descriptor_index={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} offset={} range={} is_written={}",
+            kind, descriptor_index, guest_gpu_addr, backing_cpu_addr,
+            PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(),
+            buffer.DeviceAddress(), offset, size, is_written);
+    }
+
 private:
     void BindBuffer(const Buffer& buffer, u32 offset, u32 size) {
         const VkBuffer handle = buffer.Handle();
@@ -331,15 +333,6 @@ private:
         } else {
             guest_descriptor_queue.AddBuffer(handle, buffer.DeviceAddress(), offset, size);
         }
-    }
-
-    void LogComputeBufferBinding(const char* kind, GPUVAddr guest_gpu_addr,
-                                 DAddr backing_cpu_addr, const Buffer& buffer,
-                                 u32 offset, u32 size, bool is_written) const noexcept {
-        PipelineAudit::Log(
-            "COMPUTE_BUFFER_BIND kind={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} offset={} range={} is_written={}",
-            kind, guest_gpu_addr, backing_cpu_addr, PipelineAudit::HandleValue(buffer.Handle()),
-            buffer.CpuAddr(), buffer.DeviceAddress(), offset, size, is_written);
     }
 
     VkFormat TexelBufferFormat(VideoCore::Surface::PixelFormat format) const;
