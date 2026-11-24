@@ -573,7 +573,7 @@ def main() -> int:
     # This follows the data beyond the temporary Download staging buffer.
     guest_consumer_events = {
         "DESCRIPTOR_WRITE", "DESCRIPTOR_CLASS_BIND", "COMPUTE_BUFFER_BIND",
-        "BUFFER_USAGE",
+        "COMPUTE_MULTI_RANGE_SEGMENT", "BUFFER_USAGE",
     }
     guest_consumer_groups: dict[
         tuple[str, str, str, str, str, str], dict[str, object]
@@ -592,9 +592,16 @@ def main() -> int:
                 backing = parse_int(fields.get("backing_cpu_addr"))
                 if backing is None:
                     continue
-                resource_offset = safe_value(fields, "resource_offset", "offset") or 0
-                resource_range = safe_value(fields, "resource_range", "range")
-                resource_start = backing + resource_offset
+                resource_range = safe_value(fields, "resource_range", "range",
+                                                   "segment_size")
+                if event == "COMPUTE_BUFFER_BIND":
+                    # Here backing_cpu_addr is the translated guest range start;
+                    # offset is only the offset within the containing VkBuffer.
+                    resource_start = backing
+                else:
+                    resource_offset = safe_value(fields, "resource_offset", "offset",
+                                                  "source_offset") or 0
+                    resource_start = backing + resource_offset
                 resource_end = resource_start + (resource_range if resource_range and resource_range > 0 else 1)
                 matched_intervals = [
                     interval for interval in readback_guest_intervals
