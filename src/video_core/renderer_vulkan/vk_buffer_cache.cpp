@@ -522,45 +522,30 @@ void BufferCacheRuntime::RecordTargetGpuWrite(DAddr address, u64 size, u64 frame
     if (size == 0 || !target_tracking_active.load(std::memory_order_relaxed)) {
         return;
     }
-    std::scoped_lock lock{target_ledger_mutex};
-    const DAddr end = address + size;
-    auto it = target_ledger.upper_bound(address);
-    if (it != target_ledger.begin()) {
-        --it;
-    }
-    SplitTargetSegment(address);
-    SplitTargetSegment(end);
-    it = target_ledger.lower_bound(address);
-    std::vector<std::pair<DAddr, DAddr>> overlaps;
-    for (; it != target_ledger.end() && it->first < end; ++it) {
-        const DAddr overlap_start = std::max(address, it->first);
-        const DAddr overlap_end = std::min(end, it->second.end);
-        if (overlap_start < overlap_end) {
-            overlaps.emplace_back(overlap_start, overlap_end);
+    try {
+        std::scoped_lock lock{target_ledger_mutex};
+        const DAddr end = address + size;
+        SplitTargetSegment(address);
+        SplitTargetSegment(end);
+        auto it = target_ledger.lower_bound(address);
+        if (it == target_ledger.end() || it->first >= end) {
+            return;
         }
-    }
-    if (overlaps.empty()) {
-        return;
-    }
-    const u64 sequence = ++target_write_sequence;
-    const u64 tick = scheduler.CurrentTick();
-    for (const auto& [start, finish] : overlaps) {
-        auto segment = target_ledger.upper_bound(start);
-        if (segment != target_ledger.begin()) {
-            --segment;
+
+        const u64 sequence = ++target_write_sequence;
+        const u64 tick = scheduler.CurrentTick();
+        for (; it != target_ledger.end() && it->first < end; ++it) {
+            // The map is split at both boundaries, so each logged segment is exact.
+            it->second.latest_write_sequence = sequence;
+            it->second.latest_write_frame = frame_tick;
+            it->second.latest_write_tick = tick;
+            it->second.gpu_owned = true;
+            PipelineAudit::Log(
+                "TARGET_GPU_WRITE_MARK sequence={} address={:#x} size={} frame={} scheduler_tick={} source=buffer_cache_gpu_modified_mark",
+                sequence, it->first, it->second.end - it->first, frame_tick, tick);
         }
-        for (; segment != target_ledger.end() && segment->first < finish; ++segment) {
-            if (segment->second.end <= start) {
-                continue;
-            }
-            segment->second.latest_write_sequence = sequence;
-            segment->second.latest_write_frame = frame_tick;
-            segment->second.latest_write_tick = tick;
-            segment->second.gpu_owned = true;
-        }
-        PipelineAudit::Log(
-            "TARGET_GPU_WRITE_MARK sequence={} address={:#x} size={} frame={} scheduler_tick={} source=buffer_cache_gpu_modified_mark",
-            sequence, start, finish - start, frame_tick, tick);
+    } catch (...) {
+        PipelineAudit::Log("TARGET_LEDGER_FAILURE operation=record_gpu_write_mark");
     }
 }
 
