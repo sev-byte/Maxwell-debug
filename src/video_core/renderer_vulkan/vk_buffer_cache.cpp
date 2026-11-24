@@ -559,7 +559,7 @@ void BufferCacheRuntime::RecordTargetGpuWrite(DAddr address, u64 size, u64 frame
             segment->second.gpu_owned = true;
         }
         PipelineAudit::Log(
-            "TARGET_GPU_WRITE sequence={} address={:#x} size={} frame={} scheduler_tick={} source=buffer_cache_mark_written",
+            "TARGET_GPU_WRITE_MARK sequence={} address={:#x} size={} frame={} scheduler_tick={} source=buffer_cache_gpu_modified_mark",
             sequence, start, finish - start, frame_tick, tick);
     }
 }
