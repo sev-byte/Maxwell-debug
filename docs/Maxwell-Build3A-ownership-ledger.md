@@ -32,10 +32,10 @@ The asynchronous range-registration ledger is target-only and keeps batch IDs se
 
 Produce one row per PC/Android capture, then a detail breakdown by route:
 
-| Capture | Target dispatches | Dispatches/s | Frame time median / p95 | Async batches | Async pop latency median / p95 frames | Sync readback ranges / bytes | Ownership clears | Bytes cleared over newer write marks | Batch mismatches | Flush decisions: GPU-owned / not-owned |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| PC 3A | | | | | | | | | | |
-| Android 3A | | | | | | | | | | |
+| Capture | Target dispatches | Dispatches/s | Frame time median / p95 | Visual crossings | Crossings / dispatch | Async batches | Async pop latency median / p95 frames | Sync readback ranges / bytes | Ownership clears | Bytes cleared over newer write marks | Batch mismatches | Flush decisions: GPU-owned / not-owned |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| PC 3A | | | | | | | | | | | | |
+| Android 3A | | | | | | | | | | | | |
 
 Count ownership clears and newer-write bytes separately by `reason`. Report flush decisions by operation and state pair (`cache_gpu_owned`, `tracker_gpu_owned`, `ledger_gpu_owned`); do not collapse them into one total.
 
