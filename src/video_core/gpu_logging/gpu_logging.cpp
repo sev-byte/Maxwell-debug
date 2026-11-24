@@ -542,22 +542,50 @@ void GPULogger::LogPipelineAuditEvent(const std::string& audit_info) noexcept {
         return;
     }
     audit_attempted_records.fetch_add(1, std::memory_order_relaxed);
+    u64 anchor_records = 0;
     try {
         // Serialize sequence assignment with the actual write. Audit file order therefore
         // matches the monotonically increasing global sequence number.
         std::lock_guard audit_lock(audit_mutex);
-        const u64 sequence = ++audit_sequence;
+        const auto steady_now = std::chrono::steady_clock::now();
         const auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch());
-        const auto line = fmt::format("[{}] [PipelineAudit] seq={} {}\n",
-                                      FormatTimestamp(timestamp), sequence, audit_info);
-        if (WriteToLog(line) == line.size()) {
-            audit_written_records.fetch_add(1, std::memory_order_relaxed);
+            steady_now.time_since_epoch());
+        const bool write_wall_clock_anchor =
+            last_wall_clock_anchor == std::chrono::steady_clock::time_point{} ||
+            steady_now - last_wall_clock_anchor >= std::chrono::milliseconds(100);
+
+        u64 next_sequence = audit_sequence;
+        std::string log_entries;
+        if (write_wall_clock_anchor) {
+            const u64 anchor_sequence = ++next_sequence;
+            const auto wall_epoch_us =
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count();
+            const auto anchor = fmt::format(
+                "[{}] [PipelineAudit] seq={} WALL_CLOCK_ANCHOR steady_us={} wall_epoch_us={}\n",
+                FormatTimestamp(timestamp), anchor_sequence, timestamp.count(), wall_epoch_us);
+            log_entries += anchor;
+            ++anchor_records;
+            audit_attempted_records.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        const u64 sequence = ++next_sequence;
+        log_entries += fmt::format("[{}] [PipelineAudit] seq={} {}\n",
+                                   FormatTimestamp(timestamp), sequence, audit_info);
+        audit_sequence = next_sequence;
+
+        const u64 record_count = 1 + anchor_records;
+        if (WriteToLog(log_entries) == log_entries.size()) {
+            audit_written_records.fetch_add(record_count, std::memory_order_relaxed);
         } else {
-            audit_dropped_records.fetch_add(1, std::memory_order_relaxed);
+            audit_dropped_records.fetch_add(record_count, std::memory_order_relaxed);
+        }
+        if (write_wall_clock_anchor) {
+            last_wall_clock_anchor = steady_now;
         }
     } catch (...) {
-        audit_dropped_records.fetch_add(1, std::memory_order_relaxed);
+        audit_dropped_records.fetch_add(1 + anchor_records, std::memory_order_relaxed);
     }
 }
 
