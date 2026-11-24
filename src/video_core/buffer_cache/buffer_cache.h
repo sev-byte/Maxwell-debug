@@ -1457,8 +1457,6 @@ void BufferCache<P>::BindHostComputeStorageBuffers() {
         Buffer& buffer = slot_buffers[binding.buffer_id];
         TouchBuffer(buffer, binding.buffer_id);
         const u32 size = binding.size;
-        SynchronizeBuffer(buffer, binding.device_addr, size);
-
         const u32 offset = buffer.Offset(binding.device_addr);
         if constexpr (requires {
                           runtime.LogComputeBufferBinding("storage_buffer", index, binding.gpu_addr,
@@ -1468,6 +1466,8 @@ void BufferCache<P>::BindHostComputeStorageBuffers() {
             runtime.LogComputeBufferBinding("storage_buffer", index, binding.gpu_addr,
                                              binding.device_addr, buffer, offset, size, is_written);
         }
+        // Register the live target binding before SynchronizeBuffer evaluates upload ownership.
+        SynchronizeBuffer(buffer, binding.device_addr, size);
         buffer.MarkUsage(offset, size);
 
         if (is_written) {
