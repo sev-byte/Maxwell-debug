@@ -723,6 +723,17 @@ void RasterizerVulkan::DispatchCompute() {
         return;
     }
 
+    // Dedicated relevance test: suppress only the candidate compute shader dispatch.
+    // All descriptor/resource preparation above remains intact so the experiment
+    // isolates whether executing this shader contributes visible output.
+    constexpr u64 target_shader_hash = 0x4577aed68dd75eccULL;
+    if (pipeline->ShaderHash() == target_shader_hash) {
+        PipelineAudit::Log(
+            "TARGET_SHADER_INTERVENTION mode=skip_dispatch shader_hash={:#x} expected_submit_tick={}",
+            pipeline->ShaderHash(), scheduler.CurrentTick());
+        return;
+    }
+
     const auto& qmd{kepler_compute->launch_description};
     auto indirect_address = kepler_compute->GetIndirectComputeAddress();
     if (indirect_address) {
