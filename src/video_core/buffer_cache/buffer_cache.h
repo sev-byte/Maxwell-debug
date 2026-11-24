@@ -122,7 +122,14 @@ void BufferCache<P>::UnmapGPUMemory(size_t as_id, GPUVAddr gpu_addr, size_t size
 template <class P>
 void BufferCache<P>::WriteMemory(DAddr device_addr, u64 size) {
     if (IsRegionGpuModified(device_addr, size)) {
-        ClearDownload(device_addr, size);
+        ClearDownload(device_addr, size, "WriteMemory");
+        if constexpr (requires {
+                          runtime.RecordTargetOwnershipClear(device_addr, size, "WriteMemory",
+                                                              u64{}, u64{}, frame_tick);
+                      }) {
+            runtime.RecordTargetOwnershipClear(device_addr, size, "WriteMemory", 0, 0,
+                                               frame_tick);
+        }
         gpu_modified_ranges.Subtract(device_addr, size);
     }
     memory_tracker.MarkRegionAsCpuModified(device_addr, size);
@@ -136,7 +143,21 @@ void BufferCache<P>::CachedWriteMemory(DAddr device_addr, u64 size) {
     }
     DAddr aligned_start = Common::AlignDown(device_addr, DEVICE_PAGESIZE);
     DAddr aligned_end = Common::AlignUp(device_addr + size, DEVICE_PAGESIZE);
-    if (!IsRegionGpuModified(aligned_start, aligned_end - aligned_start)) {
+    const bool cache_gpu_owned =
+        IsRegionGpuModified(aligned_start, aligned_end - aligned_start);
+    const bool tracker_gpu_owned =
+        memory_tracker.IsRegionGpuModified(aligned_start, aligned_end - aligned_start);
+    if constexpr (requires {
+                      runtime.RecordTargetOwnershipDecision("CachedWriteMemory", aligned_start,
+                                                            aligned_end - aligned_start,
+                                                            cache_gpu_owned, tracker_gpu_owned,
+                                                            false, frame_tick);
+                  }) {
+        runtime.RecordTargetOwnershipDecision("CachedWriteMemory", aligned_start,
+                                              aligned_end - aligned_start, cache_gpu_owned,
+                                              tracker_gpu_owned, false, frame_tick);
+    }
+    if (!cache_gpu_owned) {
         WriteMemory(device_addr, size);
         return;
     }
@@ -153,7 +174,18 @@ bool BufferCache<P>::OnCPUWrite(DAddr device_addr, u64 size) {
     if (!is_dirty) {
         return false;
     }
-    if (memory_tracker.IsRegionGpuModified(device_addr, size)) {
+    const bool tracker_gpu_owned = memory_tracker.IsRegionGpuModified(device_addr, size);
+    const bool cache_gpu_owned = IsRegionGpuModified(device_addr, size);
+    if constexpr (requires {
+                      runtime.RecordTargetOwnershipDecision("OnCPUWrite", device_addr, size,
+                                                            cache_gpu_owned, tracker_gpu_owned,
+                                                            false, frame_tick);
+                  }) {
+        runtime.RecordTargetOwnershipDecision("OnCPUWrite", device_addr, size,
+                                              cache_gpu_owned, tracker_gpu_owned, false,
+                                              frame_tick);
+    }
+    if (tracker_gpu_owned) {
         return true;
     }
     WriteMemory(device_addr, size);
@@ -169,12 +201,25 @@ std::optional<VideoCore::RasterizerDownloadArea> BufferCache<P>::GetFlushArea(DA
     DAddr device_addr_end_aligned = Common::AlignUp(device_addr + size, Core::DEVICE_PAGESIZE);
     area->start_address = device_addr_start_aligned;
     area->end_address = device_addr_end_aligned;
-    if (memory_tracker.IsRegionPreflushable(device_addr, size)) {
+    const bool preflushable = memory_tracker.IsRegionPreflushable(device_addr, size);
+    const bool cache_gpu_owned =
+        IsRegionGpuModified(device_addr_start_aligned,
+                            device_addr_end_aligned - device_addr_start_aligned);
+    const bool tracker_gpu_owned = memory_tracker.IsRegionGpuModified(device_addr, size);
+    if constexpr (requires {
+                      runtime.RecordTargetOwnershipDecision("GetFlushArea", device_addr, size,
+                                                            cache_gpu_owned, tracker_gpu_owned,
+                                                            preflushable, frame_tick);
+                  }) {
+        runtime.RecordTargetOwnershipDecision("GetFlushArea", device_addr, size,
+                                              cache_gpu_owned, tracker_gpu_owned,
+                                              preflushable, frame_tick);
+    }
+    if (preflushable) {
         area->preemtive = true;
         return area;
     };
-    area->preemtive = !IsRegionGpuModified(device_addr_start_aligned,
-                                           device_addr_end_aligned - device_addr_start_aligned);
+    area->preemtive = !cache_gpu_owned;
     memory_tracker.MarkRegionAsPreflushable(device_addr_start_aligned,
                                             device_addr_end_aligned - device_addr_start_aligned);
     return area;
@@ -188,7 +233,12 @@ void BufferCache<P>::DownloadMemory(DAddr device_addr, u64 size) {
 }
 
 template <class P>
-void BufferCache<P>::ClearDownload(DAddr device_addr, u64 size) {
+void BufferCache<P>::ClearDownload(DAddr device_addr, u64 size, const char* caller) {
+    if constexpr (requires {
+                      runtime.CancelTargetReadbacks(device_addr, size, caller, frame_tick);
+                  }) {
+        runtime.CancelTargetReadbacks(device_addr, size, caller, frame_tick);
+    }
     async_downloads.DeleteAll(device_addr, size);
     uncommitted_gpu_modified_ranges.Subtract(device_addr, size);
     for (auto& interval_set : committed_gpu_modified_ranges) {
