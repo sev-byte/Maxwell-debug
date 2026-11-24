@@ -23,7 +23,7 @@ EVENT_NAMES = {
     "COMPUTE_MULTI_RANGE_SEGMENT", "COMPUTE_MULTI_RANGE_DESCRIPTOR",
     "DESCRIPTOR_SET_SLOT", "DESCRIPTOR_SET_COMMIT", "DESCRIPTOR_BUFFER_ALLOC",
     "DESCRIPTOR_BUFFER_FRAME", "DESCRIPTOR_BUFFER_TOUCH", "DESCRIPTOR_CLASS_BIND",
-    "WALL_CLOCK_ANCHOR",
+    "WALL_CLOCK_ANCHOR", "TARGET_SHADER_INTERVENTION",
     "READBACK_STAGING_CREATE", "READBACK_STAGING_REUSE", "READBACK_STAGING_RELEASE",
     "READBACK_BATCH_BEGIN", "READBACK_BARRIER", "READBACK_COPY",
     "HOST_READBACK_WRITEBACK",
@@ -45,7 +45,7 @@ FIRST_PASS = {
     "TARGET_DISCOVERY", "COMPUTE_BUFFER_BIND",
     "COMPUTE_MULTI_RANGE_SEGMENT", "COMPUTE_MULTI_RANGE_DESCRIPTOR",
     "BUFFER_CREATE", "BUFFER_VIEW_CREATE", "IMAGE_VIEW_CREATE",
-    "CAPTURE_CONFIG", "WALL_CLOCK_ANCHOR",
+    "CAPTURE_CONFIG", "WALL_CLOCK_ANCHOR", "TARGET_SHADER_INTERVENTION",
 }
 SECOND_PASS = {
     "DESCRIPTOR_WRITE", "BUFFER_USAGE", "BUFFER_USAGE_RESET",
@@ -133,6 +133,7 @@ def main() -> int:
     event_counts: Counter[str] = Counter()
     capture_configs: list[dict[str, str]] = []
     wall_clock_anchors: list[tuple[int, dict[str, str]]] = []
+    target_shader_interventions: list[tuple[int, dict[str, str]]] = []
     buffer_metadata: dict[int, dict[str, str]] = {}
     target_discoveries: list[tuple[int, dict[str, str]]] = []
     target_multi_range_segments: list[tuple[int, dict[str, str]]] = []
@@ -180,6 +181,9 @@ def main() -> int:
                 capture_configs.append(fields)
             elif event == "WALL_CLOCK_ANCHOR":
                 wall_clock_anchors.append((seq, fields))
+            elif event == "TARGET_SHADER_INTERVENTION":
+                if parse_int(fields.get("shader_hash")) == target_hash:
+                    target_shader_interventions.append((seq, fields))
             elif event == "BUFFER_CREATE":
                 handle = parse_int(fields.get("buffer"))
                 if handle is not None:
@@ -720,6 +724,10 @@ def main() -> int:
     print(f"Audit sequence first={first_seq} last={last_seq} gaps={sequence_gaps}")
     print(f"Shader hash: {target_hash_text}; target guest GPU address: {target_addr_text}")
     print(f"Target compute discovery records: {len(target_discoveries)}")
+    print(f"Target shader dispatch-suppression interventions: {len(target_shader_interventions)}")
+    for seq, fields in target_shader_interventions[:100]:
+        print(f"  seq={seq} mode={fields.get('mode','unknown')} "
+              f"expected_submit_tick={fields.get('expected_submit_tick','unknown')}")
     if target_discoveries:
         expected = max((parse_int(f.get("descriptor_entries")) or 0)
                        for _, f in target_discoveries)
