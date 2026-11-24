@@ -350,8 +350,8 @@ public:
                                  const Buffer& buffer, u32 offset, u32 size,
                                  bool is_written) noexcept {
         PipelineAudit::Log(
-            "COMPUTE_BUFFER_BIND kind={} descriptor_index={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} offset={} range={} is_written={}",
-            kind, descriptor_index, guest_gpu_addr, backing_cpu_addr,
+            "COMPUTE_BUFFER_BIND kind={} descriptor_index={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} backing_end_exclusive={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} offset={} range={} is_written={}",
+            kind, descriptor_index, guest_gpu_addr, backing_cpu_addr, backing_cpu_addr + size,
             PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(),
             buffer.DeviceAddress(), offset, size, is_written);
         constexpr u64 target_shader_hash = 0x4577AED68DD75ECCULL;
