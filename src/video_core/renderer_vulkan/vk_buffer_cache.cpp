@@ -787,7 +787,7 @@ void BufferCacheRuntime::RecordTargetSynchronousDownload(const char* phase, DAdd
             continue;
         }
         PipelineAudit::Log(
-            "TARGET_SYNC_READBACK phase={} readback_id={} address={:#x} size={} scheduled_write_sequence={} latest_write_sequence={} ledger_gpu_owned={} frame={} scheduler_tick={} fence_driven=false",
+            "TARGET_SYNC_READBACK phase={} readback_id={} address={:#x} size={} scheduled_write_sequence={} latest_write_sequence={} ledger_gpu_owned={} frame={} scheduler_tick={} route=buffer_cache_sync fence_association=untracked",
             phase, readback_id, start, finish - start, write_sequence,
             it->second.latest_write_sequence, it->second.gpu_owned, frame_tick, tick);
     }
