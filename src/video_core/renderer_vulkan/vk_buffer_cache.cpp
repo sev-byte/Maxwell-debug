@@ -403,12 +403,59 @@ StagingBufferRef BufferCacheRuntime::DownloadStagingBuffer(size_t size, bool def
     return staging_pool.Request(size, MemoryUsage::Download, deferred);
 }
 
+void BufferCacheRuntime::LogReadbackBatchBegin(const StagingBufferRef& staging,
+                                               size_t total_size, size_t copy_count) {
+    PipelineAudit::Log(
+        "READBACK_BATCH_BEGIN staging_buffer={:#x} allocation_index={} staging_offset={} requested_bytes={} copy_count={} deferred={}",
+        PipelineAudit::HandleValue(staging.buffer), staging.index, staging.offset,
+        total_size, copy_count, true);
+}
+
+void BufferCacheRuntime::LogReadbackBarrier(const StagingBufferRef& staging, const char* edge,
+                                            size_t total_size, size_t copy_count) {
+    if (std::strcmp(edge, "pre") == 0) {
+        PipelineAudit::Log(
+            "READBACK_BARRIER edge=pre staging_buffer={:#x} allocation_index={} bytes={} copy_count={} src_stage=graphics_compute_transfer src_access=memory_write dst_stage=transfer dst_access=transfer_read|transfer_write",
+            PipelineAudit::HandleValue(staging.buffer), staging.index, total_size, copy_count);
+    } else {
+        PipelineAudit::Log(
+            "READBACK_BARRIER edge=post staging_buffer={:#x} allocation_index={} bytes={} copy_count={} src_stage=transfer src_access=transfer_write dst_stage=graphics_compute dst_access=memory_read|memory_write",
+            PipelineAudit::HandleValue(staging.buffer), staging.index, total_size, copy_count);
+    }
+}
+
+void BufferCacheRuntime::LogReadbackCopy(const StagingBufferRef& staging,
+                                         VkBuffer source_buffer, DAddr source_cpu_addr,
+                                         u64 source_offset, u64 staging_offset, u64 size) {
+    PipelineAudit::Log(
+        "READBACK_COPY source_buffer={:#x} source_cpu_addr={:#x} staging_buffer={:#x} allocation_index={} source_offset={} staging_offset={} size={} expected_submit_tick={}",
+        PipelineAudit::HandleValue(source_buffer), source_cpu_addr,
+        PipelineAudit::HandleValue(staging.buffer), staging.index, source_offset,
+        staging_offset, size, scheduler.CurrentTick());
+}
+
+void BufferCacheRuntime::LogHostReadback(const StagingBufferRef& staging, DAddr guest_cpu_addr,
+                                         u64 staging_offset, u64 size) {
+    PipelineAudit::Log(
+        "HOST_READBACK_WRITEBACK staging_buffer={:#x} allocation_index={} staging_offset={} guest_cpu_addr={:#x} size={} observed_completed_tick={} next_logical_tick={}",
+        PipelineAudit::HandleValue(staging.buffer), staging.index, staging_offset,
+        guest_cpu_addr, size, scheduler.GetMasterSemaphore().KnownGpuTick(),
+        scheduler.CurrentTick());
+}
+
 VkFormat BufferCacheRuntime::TexelBufferFormat(VideoCore::Surface::PixelFormat format) const {
     return MaxwellToVK::SurfaceFormat(device, FormatType::Buffer, false, format).format;
 }
 
 void BufferCacheRuntime::FreeDeferredStagingBuffer(StagingBufferRef& ref) {
+    const u64 release_tick = scheduler.CurrentTick();
     staging_pool.FreeDeferred(ref);
+    if (ref.usage == MemoryUsage::Download) {
+        PipelineAudit::Log(
+            "READBACK_STAGING_RELEASE staging_buffer={:#x} allocation_index={} assigned_tick={} observed_completed_tick={}",
+            PipelineAudit::HandleValue(ref.buffer), ref.index, release_tick,
+            scheduler.GetMasterSemaphore().KnownGpuTick());
+    }
 }
 
 u64 BufferCacheRuntime::GetDeviceLocalMemory() const {
