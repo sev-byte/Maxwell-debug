@@ -65,20 +65,23 @@ void MasterSemaphore::Refresh() {
         return;
     }
 
-    u64 this_tick{};
-    u64 counter{};
-    do {
-        this_tick = gpu_tick.load(std::memory_order_acquire);
-        counter = semaphore.GetCounter();
-        if (counter < this_tick) {
-            return;
-        }
-    } while (!gpu_tick.compare_exchange_weak(this_tick, counter, std::memory_order_release,
-                                             std::memory_order_relaxed));
-    if (counter > this_tick) {
-        PipelineAudit::Log("GPU_TICK_COMPLETE tick={} previous_completed_tick={} source=timeline_refresh",
-                           counter, this_tick);
+    // PublishCompletedTick writes the audit event before making the completion
+    // value visible through gpu_tick. TickFrame() can therefore never observe
+    // this completion and log a usage reset ahead of its completion record.
+    PublishCompletedTick(semaphore.GetCounter(), "timeline_refresh");
+}
+
+void MasterSemaphore::PublishCompletedTick(u64 tick, const char* source) {
+    std::scoped_lock lock{completion_mutex};
+    const u64 previous_completed_tick = gpu_tick.load(std::memory_order_relaxed);
+    if (tick <= previous_completed_tick) {
+        return;
     }
+
+    PipelineAudit::Log(
+        "GPU_TICK_COMPLETE tick={} previous_completed_tick={} source={}",
+        tick, previous_completed_tick, source);
+    gpu_tick.store(tick, std::memory_order_release);
 }
 
 void MasterSemaphore::Wait(u64 tick) {
@@ -353,16 +356,11 @@ void MasterSemaphore::WaitThread(std::stop_token token) {
         fence.Wait();
         fence.Reset();
 
-        u64 previous_completed_tick{};
         {
             std::scoped_lock lock{free_mutex};
             free_queue.push_front(std::move(fence));
-            previous_completed_tick = gpu_tick.load(std::memory_order_relaxed);
-            gpu_tick.store(host_tick, std::memory_order_release);
         }
-        PipelineAudit::Log(
-            "GPU_TICK_COMPLETE tick={} previous_completed_tick={} source=fence_wait_thread",
-            host_tick, previous_completed_tick);
+        PublishCompletedTick(host_tick, "fence_wait_thread");
         gpu_tick.notify_one();
     }
 }
