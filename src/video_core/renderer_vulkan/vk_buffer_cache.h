@@ -205,11 +205,6 @@ public:
         PipelineAudit::Log(
             "DESCRIPTOR_CLASS_BIND kind=uniform_buffer_mapped stage={} binding={} buffer={:#x} offset={} range={}",
             stage, binding_index, PipelineAudit::HandleValue(ref.buffer), ref.offset, size);
-        PipelineAudit::Log(
-            "COMPUTE_BUFFER_BIND kind=uniform_buffer_mapped descriptor_index={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} offset={} range={} is_written=false",
-            binding_index, guest_gpu_addr, backing_cpu_addr,
-            PipelineAudit::HandleValue(ref.buffer), backing_cpu_addr,
-            ref.device_address, ref.offset, size);
         guest_descriptor_queue.AddBuffer(ref.buffer, ref.device_address,
                                          static_cast<u32>(ref.offset), size);
         return ref.mapped_span;
@@ -224,6 +219,11 @@ public:
         PipelineAudit::Log(
             "DESCRIPTOR_CLASS_BIND kind=uniform_buffer_mapped stage={} binding={} buffer={:#x} offset={} range={}",
             stage, binding_index, PipelineAudit::HandleValue(ref.buffer), ref.offset, size);
+        PipelineAudit::Log(
+            "COMPUTE_BUFFER_BIND kind=uniform_buffer_mapped descriptor_index={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} backing_end_exclusive={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} offset={} range={} is_written=false",
+            binding_index, guest_gpu_addr, backing_cpu_addr, backing_cpu_addr + size,
+            PipelineAudit::HandleValue(ref.buffer), backing_cpu_addr,
+            ref.device_address, ref.offset, size);
         guest_descriptor_queue.AddBuffer(ref.buffer, ref.device_address,
                                          static_cast<u32>(ref.offset), size);
         return ref.mapped_span;
