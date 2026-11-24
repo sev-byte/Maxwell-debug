@@ -87,3 +87,32 @@ Treat this as a traced resource, not yet as a proven lighting buffer. The shader
 ## Capture integrity
 
 Retain the full original `eden_gpu.log`, accompanying `eden_log.txt`, video and the final `PipelineAuditSummary`. Do not treat missing consumers or missing events as negative evidence if the summary reports dropped records, sequence gaps or an incomplete capture.
+
+## Derived hop clarification — GPU-to-CPU readback
+
+The first Build 1 capture's repeated two-chunk outbound copies must not automatically be interpreted as shader-to-shader transfers.
+
+Source inspection identified an asynchronous buffer-cache readback path:
+
+1. The cache collects GPU-modified ranges.
+2. It allocates a deferred `MemoryUsage::Download` staging buffer.
+3. It records a pre-copy barrier from graphics/compute/transfer memory writes to transfer reads/writes.
+4. It copies the modified ranges from the source Vulkan buffer into the mapped download staging buffer.
+5. It records a post-copy barrier from transfer writes to graphics/compute memory reads/writes.
+6. Once the staging contents are ready, the CPU reads the mapped staging memory and writes the bytes back into guest memory.
+
+In Build 1, individual outbound copy records used `barrier=false` because the two batch-level barriers were recorded separately around the copies. Therefore `barrier=false` on the individual copy is not evidence that the readback sequence had no barriers.
+
+Build 2 adds these explicit records:
+
+- `READBACK_STAGING_CREATE` / `READBACK_STAGING_REUSE` / `READBACK_STAGING_RELEASE`
+- `READBACK_BATCH_BEGIN`
+- `READBACK_BARRIER edge=pre|post`
+- `READBACK_COPY` mapping source VkBuffer and CPU backing address to staging VkBuffer and byte ranges
+- `HOST_READBACK_WRITEBACK` mapping staging offsets to guest CPU addresses and byte counts
+
+The analyser follows source copies from the target buffer to the staging handle, then joins those events to the CPU-side guest-memory writeback. Shader consumers of the staging handles are still checked, but their absence is not treated as a missing consumer: these Download buffers are expected to be read by the CPU.
+
+For staging-buffer reuse, `READBACK_STAGING_REUSE` records the previous assigned tick, observed completed GPU tick, new assigned tick and whether the reuse was safe. The host writeback event also records the last completed tick observed at the time guest memory is written.
+
+This is the derived hop to prioritise before looking for downstream shader consumers of the staging destination.
