@@ -22,6 +22,7 @@ EVENT_NAMES = {
     "IMAGE_TO_BUFFER_REQUEST", "IMAGE_TO_BUFFER_DESTINATION", "COMPUTE_DISPATCH",
     "COMPUTE_MULTI_RANGE_SEGMENT", "COMPUTE_MULTI_RANGE_DESCRIPTOR",
     "DESCRIPTOR_SET_SLOT", "DESCRIPTOR_SET_COMMIT", "DESCRIPTOR_BUFFER_ALLOC",
+    "DESCRIPTOR_BUFFER_FRAME", "DESCRIPTOR_BUFFER_TOUCH",
     "DESCRIPTOR_BUFFER_REUSE_WAIT_BEGIN", "DESCRIPTOR_BUFFER_REUSE_WAIT_END",
     "DESCRIPTOR_BUFFER_CHUNK_STALL_BEGIN", "DESCRIPTOR_BUFFER_CHUNK_STALL_END",
     "SUBMISSION_SCHEDULE", "SUBMISSION_ACCEPTED", "GPU_TICK_COMPLETE",
@@ -285,6 +286,11 @@ def main() -> int:
                     target_descriptor_writes.append((seq, fields))
                     grouped_writes[(parse_int(fields.get("target_hash")),
                                     fields.get("stage", "?"))] += 1
+                    # Descriptor payloads themselves carry guest GPUVA and VkBuffer.
+                    # Use that direct mapping as a resource-identity seed for the
+                    # subsequent usage/reset/transfer timeline pass.
+                    if handle is not None and kind in ("buffer", "buffer_address"):
+                        target_handles.add(handle)
 
             elif event == "COMPUTE_DISPATCH":
                 shader = safe_value(fields, "shader_hash", "shader")
@@ -324,6 +330,52 @@ def main() -> int:
                     if fields.get("completed_after_wait", "").lower() != "true":
                         reuse_findings.append((seq, body))
 
+    # Pass 2b: re-scan from the beginning now that descriptor writes have
+    # resolved the target VkBuffer handle. This avoids missing BUFFER_USAGE,
+    # reset or transfer records that happened before the first matching descriptor.
+    timeline.clear()
+    expected_ticks.clear()
+    timeline_event_counts: Counter[str] = Counter()
+    resource_events = {
+        "BUFFER_CREATE", "BUFFER_USAGE", "BUFFER_USAGE_RESET",
+        "UPLOAD_REORDER_RANGE", "UPLOAD_REORDER_DECISION",
+        "BUFFER_TRANSFER", "BUFFER_TRANSFER_BATCH", "BUFFER_CLEAR",
+    }
+    descriptor_events = {
+        "DESCRIPTOR_SET_SLOT", "DESCRIPTOR_SET_COMMIT",
+        "DESCRIPTOR_BUFFER_ALLOC", "DESCRIPTOR_BUFFER_FRAME",
+        "DESCRIPTOR_BUFFER_TOUCH", "DESCRIPTOR_BUFFER_REUSE_WAIT_BEGIN",
+        "DESCRIPTOR_BUFFER_REUSE_WAIT_END",
+        "DESCRIPTOR_BUFFER_CHUNK_STALL_BEGIN", "DESCRIPTOR_BUFFER_CHUNK_STALL_END",
+    }
+    with args.log.open("r", encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            parsed = audit_parts(line)
+            if parsed is None:
+                continue
+            seq, event, body = parsed
+            if event not in resource_events and event not in descriptor_events:
+                continue
+            fields = parse_fields(body)
+            relevant = False
+            if event in resource_events:
+                handle = parse_int(fields.get("buffer"))
+                src = parse_int(fields.get("src"))
+                dst = parse_int(fields.get("dst"))
+                relevant = (handle in target_handles or
+                            src in target_handles or dst in target_handles)
+            elif event in descriptor_events:
+                relevant = parse_int(fields.get("target_hash")) == target_hash
+            if not relevant:
+                continue
+            timeline.append((seq, event, body))
+            timeline_event_counts[event] += 1
+            for key in ("expected_submit_tick", "tick", "reset_tick",
+                        "last_usage_tick", "previous_use_tick", "assigned_use_tick"):
+                tick = parse_int(fields.get(key))
+                if tick is not None and tick > 0:
+                    expected_ticks.add(tick)
+
     # Pass 3: join only the submissions referenced by the target transfer timeline.
     if expected_ticks:
         with args.log.open("r", encoding="utf-8", errors="replace") as stream:
@@ -358,7 +410,10 @@ def main() -> int:
         expected = max((parse_int(f.get("descriptor_entries")) or 0)
                        for _, f in target_discoveries)
         print(f"Expected descriptor entries (maximum seen): {expected}")
-    print(f"Target buffer bindings resolved: {len(target_bindings)}")
+    print(f"Target buffer bindings resolved from COMPUTE_BUFFER_BIND: {len(target_bindings)}")
+    print(f"Target VkBuffer handles resolved from matching descriptor writes: {len(target_handles)}")
+    for handle in sorted(target_handles):
+        print(f"  VkBuffer={hex(handle)}")
     for seq, kind, fields in target_bindings:
         print(
             f"  seq={seq} kind={kind} guest_gpu_addr="
@@ -373,6 +428,9 @@ def main() -> int:
     print(f"Descriptor writes resolved to a resource identity: {resolved_writes}")
     print(f"Descriptor writes unresolved: {unresolved_writes}")
     print(f"Descriptor writes overlapping target buffer: {len(target_descriptor_writes)}")
+    if target_descriptor_writes:
+        target_seqs = [seq for seq, _ in target_descriptor_writes]
+        print(f"Target descriptor sequence range: first={min(target_seqs)} last={max(target_seqs)}")
     print("Target descriptor writes grouped by shader hash/stage:")
     for (shader, stage), count in sorted(grouped_writes.items(),
                                          key=lambda item: (item[0][0] or 0, item[0][1])):
@@ -388,6 +446,9 @@ def main() -> int:
         print(f"  ... {len(target_descriptor_writes)-500} additional matching descriptor writes omitted")
     print(f"Target compute dispatches: {target_dispatches}")
     print(f"Target buffer timeline records: {len(timeline)}")
+    print("Target timeline event counts:")
+    for name, count in sorted(timeline_event_counts.items()):
+        print(f"  {name}={count}")
     for seq, event, body in timeline:
         print(f"  seq={seq} {event} {body}")
     print(f"Descriptor/ring premature-reuse findings: {len(reuse_findings)}")
