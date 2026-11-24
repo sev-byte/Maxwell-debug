@@ -324,6 +324,9 @@ public:
     /// Return true when a CPU region is modified from the GPU
     [[nodiscard]] bool IsRegionGpuModified(DAddr addr, size_t size);
 
+    /// Return true when the memory tracker considers a region GPU-modified.
+    [[nodiscard]] bool IsMemoryTrackerRegionGpuModified(DAddr addr, size_t size);
+
     /// Return true when a region is registered on the cache
     [[nodiscard]] bool IsRegionRegistered(DAddr addr, size_t size);
 
