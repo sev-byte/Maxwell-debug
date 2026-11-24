@@ -23,7 +23,7 @@ The previously observed binding was CPU-backed at `0x07491000`, size `0x00640000
 | `TARGET_ASYNC_CANCEL` | Target registrations removed by `ClearDownload`, with the caller and count/range removed. |
 | `TARGET_OWNERSHIP_CLEAR` | A range whose BufferCache GPU-owned state is cleared. `newer_write_bytes` counts bytes whose latest recorded write mark is newer than the readback's schedule sequence. Use `reason` to separate asynchronous completion from synchronous scheduling and CPU/DMA clears. |
 | `TARGET_SYNC_READBACK` | Synchronous BufferCache readback request, copy scheduling, GPU completion, and guest-memory writeback. Fence association is deliberately marked untracked where the caller context is unavailable. |
-| `TARGET_OWNERSHIP_DECISION` | Ownership view at `MustFlushRegion`, `GetFlushArea`, `OnCPUWrite`, `CachedWriteMemory`, and `SynchronizeBuffer` upload decisions. Includes BufferCache state, memory-tracker state, ledger state, latest write mark and age. |
+| `TARGET_OWNERSHIP_DECISION` | Ownership view at `MustFlushRegion`, `OnCPUWrite`, `CachedWriteMemory`, and `SynchronizeBuffer` upload decisions; the generic BufferCache `GetFlushArea` path is also instrumented where used. Includes BufferCache state, memory-tracker state, ledger state, latest write mark and age. |
 | `TARGET_DISPATCH`, `FRAME_METRICS`, `FENCE_SIGNAL_*`, `FENCE_WAIT_*` | Target dispatch cadence, frame elapsed time, fence signal/wait context. |
 
 The asynchronous range-registration ledger is target-only and keeps batch IDs separately from the counted overlap range set. This lets offline analysis identify a pop consuming a registration added by a different batch.
@@ -42,6 +42,7 @@ Count ownership clears and newer-write bytes separately by `reason`. Report flus
 ## Interpretation limits
 
 - The write generation follows the BufferCache interval marked by `MarkWrittenBuffer` (or a GPU-modified range mirrored through BufferCache DMA copy). It is interval-granular, but it is **not shader-instrumented exact store coverage**. If the shader writes only a subrange inside a larger bound SSBO without changing the descriptor range, Build 3A will report the cache's bound/marked interval, not the exact shader store addresses.
+- On Vulkan, the rasterizer's `GetFlushArea()` delegates to TextureCache rather than BufferCache, so a BufferCache `GetFlushArea` event is not expected from that override. Vulkan's buffer-cache ownership check is captured at `MustFlushRegion()`.
 - Eden does not trap every arbitrary guest CPU load. The ledger reports the flush/download paths, ownership checks, and fence context visible to the emulator; it must not be described as a complete log of all CPU reads.
 - A `TARGET_GPU_WRITE_MARK` is a cache ownership mark associated with a dispatch/binding, not a completion timestamp. Compare it with the separately logged dispatch, fence, and readback events.
 - Build 3A is measurement-only. Skip-readback (3B), immediate fresh readback (3C), and wait-only timing control (3D) must remain separate intervention builds so their results are not mixed with the baseline ledger.
