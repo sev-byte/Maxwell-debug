@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <memory>
 #include <mutex>
 
@@ -735,6 +736,11 @@ void RasterizerVulkan::DispatchCompute() {
             "COMPUTE_DISPATCH mode=indirect shader_hash={:#x} indirect_buffer={:#x} offset={} expected_submit_tick={}",
             pipeline->ShaderHash(), PipelineAudit::HandleValue(buffer->Handle()), offset,
             scheduler.CurrentTick());
+        if (pipeline->ShaderHash() == 0x4577AED68DD75ECCULL) {
+            PipelineAudit::Log(
+                "TARGET_DISPATCH frame={} mode=indirect shader_hash={:#x} expected_submit_tick={}",
+                audit_frame_number, pipeline->ShaderHash(), scheduler.CurrentTick());
+        }
         scheduler.RequestOutsideRenderPassOperationContext();
         scheduler.Record([pipeline, indirect_buffer = buffer->Handle(),
                           indirect_offset = offset](vk::CommandBuffer cmdbuf) {
@@ -753,6 +759,12 @@ void RasterizerVulkan::DispatchCompute() {
     PipelineAudit::Log(
         "COMPUTE_DISPATCH mode=direct shader_hash={:#x} groups={}x{}x{} expected_submit_tick={}",
         pipeline->ShaderHash(), dim[0], dim[1], dim[2], scheduler.CurrentTick());
+    if (pipeline->ShaderHash() == 0x4577AED68DD75ECCULL) {
+        PipelineAudit::Log(
+            "TARGET_DISPATCH frame={} mode=direct shader_hash={:#x} groups={}x{}x{} expected_submit_tick={}",
+            audit_frame_number, pipeline->ShaderHash(), dim[0], dim[1], dim[2],
+            scheduler.CurrentTick());
+    }
     scheduler.RequestOutsideRenderPassOperationContext();
     static constexpr VkMemoryBarrier READ_BARRIER{
         .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
@@ -813,6 +825,12 @@ void RasterizerVulkan::FlushRegion(DAddr addr, u64 size, VideoCommon::CacheType 
     if (addr == 0 || size == 0) {
         return;
     }
+    if (True(which & VideoCommon::CacheType::BufferCache)) {
+        const u64 write_sequence = buffer_cache.runtime.CurrentTargetWriteSequence();
+        buffer_cache.runtime.RecordTargetSynchronousDownload(
+            "RasterizerVulkan::FlushRegion", addr, size, 0, write_sequence,
+            audit_frame_number);
+    }
     if (True(which & VideoCommon::CacheType::TextureCache)) {
         std::scoped_lock lock{texture_cache.mutex};
         texture_cache.DownloadMemory(addr, size);
@@ -829,7 +847,11 @@ void RasterizerVulkan::FlushRegion(DAddr addr, u64 size, VideoCommon::CacheType 
 bool RasterizerVulkan::MustFlushRegion(DAddr addr, u64 size, VideoCommon::CacheType which) {
     if ((True(which & VideoCommon::CacheType::BufferCache))) {
         std::scoped_lock lock{buffer_cache.mutex};
-        if (buffer_cache.IsRegionGpuModified(addr, size)) {
+        const bool cache_gpu_owned = buffer_cache.IsRegionGpuModified(addr, size);
+        buffer_cache.runtime.RecordTargetOwnershipDecision(
+            "Vulkan.MustFlushRegion", addr, size, cache_gpu_owned, false, false,
+            audit_frame_number);
+        if (cache_gpu_owned) {
             return true;
         }
     }
@@ -957,7 +979,17 @@ void RasterizerVulkan::ModifyGPUMemory(size_t as_id, GPUVAddr addr, u64 size) {
 }
 
 void RasterizerVulkan::SignalFence(std::function<void()>&& func) {
+    const bool delay_fence = Settings::IsGPUFenceBehaviorDefault()
+                                 ? Settings::IsGPULevelHigh()
+                                 : Settings::IsGPUFenceBehaviorBalanced() ||
+                                       Settings::IsGPUFenceBehaviorAccurate();
+    PipelineAudit::Log(
+        "FENCE_SIGNAL_BEGIN frame={} scheduler_tick={} gpu_level_high={} fence_delay={} target_buffer_has_uncommitted={}",
+        audit_frame_number, scheduler.CurrentTick(), Settings::IsGPULevelHigh(), delay_fence,
+        buffer_cache.HasUncommittedFlushes());
     fence_manager.SignalFence(std::move(func));
+    PipelineAudit::Log("FENCE_SIGNAL_END frame={} scheduler_tick={}",
+                       audit_frame_number, scheduler.CurrentTick());
 }
 
 void RasterizerVulkan::SyncOperation(std::function<void()>&& func) {
@@ -973,11 +1005,21 @@ void RasterizerVulkan::SignalReference() {
 }
 
 void RasterizerVulkan::ReleaseFences(bool force) {
+    PipelineAudit::Log("FENCE_WAIT_REQUEST frame={} force={} scheduler_tick={}",
+                       audit_frame_number, force, scheduler.CurrentTick());
     fence_manager.WaitPendingFences(force);
+    PipelineAudit::Log("FENCE_WAIT_RETURN frame={} force={} scheduler_tick={}",
+                       audit_frame_number, force, scheduler.CurrentTick());
 }
 
 void RasterizerVulkan::FlushAndInvalidateRegion(DAddr addr, u64 size,
                                                 VideoCommon::CacheType which) {
+    if (True(which & VideoCommon::CacheType::BufferCache) && addr != 0 && size != 0) {
+        const u64 write_sequence = buffer_cache.runtime.CurrentTargetWriteSequence();
+        buffer_cache.runtime.RecordTargetSynchronousDownload(
+            "RasterizerVulkan::FlushAndInvalidateRegion", addr, size, 0, write_sequence,
+            audit_frame_number);
+    }
     if (Settings::IsGPULevelHigh()) {
         FlushRegion(addr, size, which);
     }
@@ -1025,6 +1067,14 @@ void RasterizerVulkan::FlushCommands() {
 }
 
 void RasterizerVulkan::TickFrame() {
+    const auto now = std::chrono::steady_clock::now();
+    const auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                now - audit_last_frame_time)
+                                .count();
+    audit_last_frame_time = now;
+    ++audit_frame_number;
+    PipelineAudit::Log("FRAME_METRICS frame={} elapsed_us={} scheduler_tick={} renderer=Vulkan",
+                       audit_frame_number, elapsed_us, scheduler.CurrentTick());
     draw_counter = 0;
     guest_descriptor_queue.TickFrame();
     compute_pass_descriptor_queue.TickFrame();
