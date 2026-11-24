@@ -497,8 +497,9 @@ void BufferCacheRuntime::RegisterTargetRange(DAddr address, u64 size,
     target_tracking_active.store(true, std::memory_order_relaxed);
     if (newly_tracked_bytes != 0) {
         PipelineAudit::Log(
-            "TARGET_RANGE_DISCOVERED shader_hash={:#x} descriptor_index={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} size={} newly_tracked_bytes={} buffer={:#x} buffer_base_cpu_addr={:#x} buffer_offset={} is_written={} source=live_storage_binding",
-            0x4577AED68DD75ECCULL, descriptor_index, guest_gpu_address, address, size,
+            "TARGET_RANGE_DISCOVERED shader_hash={:#x} descriptor_index={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} backing_end_exclusive={:#x} size={} newly_tracked_bytes={} buffer={:#x} buffer_base_cpu_addr={:#x} buffer_offset={} is_written={} source=live_storage_binding",
+            0x4577AED68DD75ECCULL, descriptor_index, guest_gpu_address, address, address + size,
+            size,
             newly_tracked_bytes, PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(),
             buffer_offset, is_written);
     }
