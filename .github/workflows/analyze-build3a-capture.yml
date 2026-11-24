@@ -1,0 +1,48 @@
+name: Analyze Build 3A Diagnostic Capture
+
+on:
+  push:
+    branches:
+      - maxwell-pipeline-transfer-audit-build3a-ownership-timeline
+    paths:
+      - 'tools/analyze_build3a_capture.py'
+      - '.github/workflows/analyze-build3a-capture.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out analysis script
+        uses: actions/checkout@v4
+
+      - name: Download uploaded Build 3A capture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --location --fail --retry 3 --retry-all-errors \
+            -H "Accept: application/octet-stream" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/assets/788817992" \
+            --output Pipeline.transfer.build.3a.zip
+          echo "Downloaded bytes: $(stat -c '%s' Pipeline.transfer.build.3a.zip)"
+          test "$(stat -c '%s' Pipeline.transfer.build.3a.zip)" -eq 297304816
+          unzip -tq Pipeline.transfer.build.3a.zip
+
+      - name: Stream and summarize Build 3A logs
+        run: |
+          python3 tools/analyze_build3a_capture.py Pipeline.transfer.build.3a.zip triage-output
+
+      - name: Upload compact triage results
+        uses: actions/upload-artifact@v4
+        with:
+          name: build3a-capture-triage
+          path: triage-output/
+          if-no-files-found: error
+          retention-days: 14
