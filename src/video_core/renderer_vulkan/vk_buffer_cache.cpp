@@ -521,6 +521,9 @@ void BufferCacheRuntime::RecordTargetGpuWrite(DAddr address, u64 size, u64 frame
     if (it != target_ledger.begin()) {
         --it;
     }
+    SplitTargetSegment(address);
+    SplitTargetSegment(end);
+    it = target_ledger.lower_bound(address);
     std::vector<std::pair<DAddr, DAddr>> overlaps;
     for (; it != target_ledger.end() && it->first < end; ++it) {
         const DAddr overlap_start = std::max(address, it->first);
@@ -563,10 +566,9 @@ void BufferCacheRuntime::RecordTargetOwnershipClear(DAddr address, u64 size,
     }
     std::scoped_lock lock{target_ledger_mutex};
     const DAddr end = address + size;
-    auto it = target_ledger.upper_bound(address);
-    if (it != target_ledger.begin()) {
-        --it;
-    }
+    SplitTargetSegment(address);
+    SplitTargetSegment(end);
+    auto it = target_ledger.lower_bound(address);
     const u64 tick = scheduler.CurrentTick();
     for (; it != target_ledger.end() && it->first < end; ++it) {
         const DAddr start = std::max(address, it->first);
@@ -626,10 +628,9 @@ void BufferCacheRuntime::RegisterTargetReadback(u64 batch_id, DAddr address, u64
     }
     std::scoped_lock lock{target_ledger_mutex};
     const DAddr end = address + size;
-    auto it = target_ledger.upper_bound(address);
-    if (it != target_ledger.begin()) {
-        --it;
-    }
+    SplitTargetSegment(address);
+    SplitTargetSegment(end);
+    auto it = target_ledger.lower_bound(address);
     bool touched_target = false;
     for (; it != target_ledger.end() && it->first < end; ++it) {
         const DAddr start = std::max(address, it->first);
