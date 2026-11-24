@@ -16,6 +16,7 @@
 #include "common/common_types.h"
 #include "common/literals.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/vk_pipeline_audit.h"
 #include "video_core/renderer_vulkan/vk_staging_buffer_pool.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
@@ -196,9 +197,18 @@ std::optional<StagingBufferRef> StagingBufferPool::TryGetReservedBuffer(size_t s
         }
     }
     cache_level.iterate_index = std::distance(entries.begin(), it) + 1;
+    const u64 previous_use_tick = it->tick;
+    const u64 observed_completed_tick = scheduler.GetMasterSemaphore().KnownGpuTick();
     it->tick = deferred ? (std::numeric_limits<u64>::max)() : scheduler.CurrentTick();
     ASSERT(!it->deferred);
     it->deferred = deferred;
+    if (usage == MemoryUsage::Download) {
+        PipelineAudit::Log(
+            "READBACK_STAGING_REUSE staging_buffer={:#x} allocation_index={} requested_size={} allocation_capacity={} previous_use_tick={} observed_completed_tick={} assigned_tick={} deferred={} reuse_safe={}",
+            PipelineAudit::HandleValue(*it->buffer), it->index, size,
+            it->mapped_span.size(), previous_use_tick, observed_completed_tick, it->tick,
+            deferred, observed_completed_tick >= previous_use_tick);
+    }
     return it->Ref();
 }
 
@@ -242,6 +252,12 @@ StagingBufferRef StagingBufferPool::CreateStagingBuffer(size_t size, MemoryUsage
         .tick = deferred ? (std::numeric_limits<u64>::max)() : scheduler.CurrentTick(),
         .deferred = deferred,
     });
+    if (usage == MemoryUsage::Download) {
+        PipelineAudit::Log(
+            "READBACK_STAGING_CREATE staging_buffer={:#x} allocation_index={} requested_size={} allocation_capacity={} device_address={:#x} deferred={} initial_tick={}",
+            PipelineAudit::HandleValue(*entry.buffer), entry.index, size,
+            entry.mapped_span.size(), entry.device_address, deferred, entry.tick);
+    }
     return entry.Ref();
 }
 
