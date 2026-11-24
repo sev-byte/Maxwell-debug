@@ -1723,6 +1723,11 @@ void BufferCache<P>::MarkWrittenBuffer(BufferId buffer_id, DAddr device_addr, u3
     memory_tracker.MarkRegionAsGpuModified(device_addr, size);
     gpu_modified_ranges.Add(device_addr, size);
     uncommitted_gpu_modified_ranges.Add(device_addr, size);
+    if constexpr (requires {
+                      runtime.RecordTargetGpuWrite(device_addr, size, frame_tick);
+                  }) {
+        runtime.RecordTargetGpuWrite(device_addr, size, frame_tick);
+    }
 }
 
 template <class P>
@@ -1954,6 +1959,21 @@ bool BufferCache<P>::SynchronizeBuffer(Buffer& buffer, DAddr device_addr, u32 si
             largest_copy = (std::max)(largest_copy, range_size);
         };
         memory_tracker.ForEachUploadRange(device_addr, size, [&](u64 device_addr_out, u64 range_size) {
+            const bool cache_gpu_owned = IsRegionGpuModified(device_addr_out, range_size);
+            const bool tracker_gpu_owned =
+                memory_tracker.IsRegionGpuModified(device_addr_out, range_size);
+            if constexpr (requires {
+                              runtime.RecordTargetOwnershipDecision("SynchronizeBuffer.upload",
+                                                                    device_addr_out, range_size,
+                                                                    cache_gpu_owned,
+                                                                    tracker_gpu_owned, false,
+                                                                    frame_tick);
+                          }) {
+                runtime.RecordTargetOwnershipDecision("SynchronizeBuffer.upload",
+                                                      device_addr_out, range_size,
+                                                      cache_gpu_owned, tracker_gpu_owned, false,
+                                                      frame_tick);
+            }
             DAddr upload_start = device_addr_out;
             gpu_modified_ranges.ForEachInRange(device_addr_out, range_size, [&](DAddr gpu_start, DAddr gpu_end) {
                 add_upload(upload_start, gpu_start);
@@ -1974,6 +1994,21 @@ bool BufferCache<P>::SynchronizeBuffer(Buffer& buffer, DAddr device_addr, u32 si
         u64 largest_copy = 0;
         DAddr buffer_start = buffer.CpuAddr();
         memory_tracker.ForEachUploadRange(device_addr, size, [&](u64 device_addr_out, u64 range_size) {
+            const bool cache_gpu_owned = IsRegionGpuModified(device_addr_out, range_size);
+            const bool tracker_gpu_owned =
+                memory_tracker.IsRegionGpuModified(device_addr_out, range_size);
+            if constexpr (requires {
+                              runtime.RecordTargetOwnershipDecision("SynchronizeBuffer.upload",
+                                                                    device_addr_out, range_size,
+                                                                    cache_gpu_owned,
+                                                                    tracker_gpu_owned, false,
+                                                                    frame_tick);
+                          }) {
+                runtime.RecordTargetOwnershipDecision("SynchronizeBuffer.upload",
+                                                      device_addr_out, range_size,
+                                                      cache_gpu_owned, tracker_gpu_owned, false,
+                                                      frame_tick);
+            }
             copies.push_back(BufferCopy{
                 .src_offset = total_size_bytes,
                 .dst_offset = device_addr_out - buffer_start,
