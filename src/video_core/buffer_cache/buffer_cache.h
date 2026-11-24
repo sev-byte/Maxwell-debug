@@ -875,13 +875,16 @@ void BufferCache<P>::PopAsyncBuffers() {
             }
             gpu_modified_ranges.Subtract(start, end - start);
         });
+    }
+    if (!downloads.empty()) {
+        const PendingDownload& batch = downloads.front();
         if constexpr (requires {
-                          runtime.LogTargetReadbackBatchPop(pending.batch_id,
-                                                            pending.schedule_frame,
-                                                            pending.schedule_tick, frame_tick);
+                          runtime.LogTargetReadbackBatchPop(batch.batch_id,
+                                                            batch.schedule_frame,
+                                                            batch.schedule_tick, frame_tick);
                       }) {
-            runtime.LogTargetReadbackBatchPop(pending.batch_id, pending.schedule_frame,
-                                              pending.schedule_tick, frame_tick);
+            runtime.LogTargetReadbackBatchPop(batch.batch_id, batch.schedule_frame,
+                                              batch.schedule_tick, frame_tick);
         }
     }
     async_buffers_death_ring.emplace_back(*async_buffer);
