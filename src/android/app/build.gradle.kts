@@ -136,11 +136,11 @@ android {
             }
 
             if (isNightly) {
-                applicationIdSuffix = ".pipelineaudit2.nightly"
-                manifestPlaceholders += mapOf("appNameSuffix" to " Pipeline Audit Build 2 Nightly")
+                applicationIdSuffix = ".targetshaderskip.nightly"
+                manifestPlaceholders += mapOf("appNameSuffix" to " Target Shader Skip Nightly")
             } else {
-                applicationIdSuffix = ".pipelineaudit2"
-                manifestPlaceholders += mapOf("appNameSuffix" to " Pipeline Audit Build 2")
+                applicationIdSuffix = ".targetshaderskip"
+                manifestPlaceholders += mapOf("appNameSuffix" to " Target Shader Skip Test")
             }
 
             isMinifyEnabled = true
