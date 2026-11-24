@@ -487,11 +487,13 @@ void BufferCacheRuntime::RegisterTargetRange(DAddr address, u64 size,
                                              GPUVAddr guest_gpu_address, const Buffer& buffer,
                                              u32 buffer_offset, size_t descriptor_index,
                                              bool is_written) {
-    if (size == 0) {
+    if (size == 0 ||
+        !GPU::Logging::GPULogger::GetInstance().IsDetailedAuditEnabled()) {
         return;
     }
     std::scoped_lock lock{target_ledger_mutex};
     const u64 newly_tracked_bytes = EnsureTargetRange(address, address + size);
+    target_tracking_active.store(true, std::memory_order_relaxed);
     if (newly_tracked_bytes != 0) {
         PipelineAudit::Log(
             "TARGET_RANGE_DISCOVERED shader_hash={:#x} descriptor_index={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} size={} newly_tracked_bytes={} buffer={:#x} buffer_base_cpu_addr={:#x} buffer_offset={} is_written={} source=live_storage_binding",
@@ -507,12 +509,15 @@ u64 BufferCacheRuntime::NextTargetReadbackBatchId() {
 }
 
 u64 BufferCacheRuntime::CurrentTargetWriteSequence() const {
+    if (!target_tracking_active.load(std::memory_order_relaxed)) {
+        return 0;
+    }
     std::scoped_lock lock{target_ledger_mutex};
     return target_write_sequence;
 }
 
 void BufferCacheRuntime::RecordTargetGpuWrite(DAddr address, u64 size, u64 frame_tick) {
-    if (size == 0) {
+    if (size == 0 || !target_tracking_active.load(std::memory_order_relaxed)) {
         return;
     }
     std::scoped_lock lock{target_ledger_mutex};
@@ -561,7 +566,7 @@ void BufferCacheRuntime::RecordTargetOwnershipClear(DAddr address, u64 size,
                                                     const char* reason, u64 batch_id,
                                                     u64 schedule_write_sequence,
                                                     u64 frame_tick) {
-    if (size == 0) {
+    if (size == 0 || !target_tracking_active.load(std::memory_order_relaxed)) {
         return;
     }
     std::scoped_lock lock{target_ledger_mutex};
@@ -592,7 +597,7 @@ void BufferCacheRuntime::RecordTargetOwnershipDecision(const char* operation, DA
                                                        u64 size, bool cache_gpu_owned,
                                                        bool tracker_gpu_owned, bool preflushable,
                                                        u64 frame_tick) {
-    if (size == 0) {
+    if (size == 0 || !target_tracking_active.load(std::memory_order_relaxed)) {
         return;
     }
     std::scoped_lock lock{target_ledger_mutex};
@@ -623,7 +628,7 @@ void BufferCacheRuntime::RegisterTargetReadback(u64 batch_id, DAddr address, u64
                                                 u64 schedule_write_sequence,
                                                 u64 schedule_frame, u64 schedule_tick,
                                                 size_t total_size, size_t copy_count) {
-    if (size == 0) {
+    if (size == 0 || !target_tracking_active.load(std::memory_order_relaxed)) {
         return;
     }
     std::scoped_lock lock{target_ledger_mutex};
@@ -656,7 +661,7 @@ void BufferCacheRuntime::RegisterTargetReadback(u64 batch_id, DAddr address, u64
 
 void BufferCacheRuntime::CancelTargetReadbacks(DAddr address, u64 size, const char* caller,
                                                u64 frame_tick) {
-    if (size == 0) {
+    if (size == 0 || !target_tracking_active.load(std::memory_order_relaxed)) {
         return;
     }
     std::scoped_lock lock{target_ledger_mutex};
@@ -682,7 +687,7 @@ void BufferCacheRuntime::CancelTargetReadbacks(DAddr address, u64 size, const ch
 void BufferCacheRuntime::InspectTargetReadbackPop(
     u64 batch_id, DAddr start, DAddr end, s32 overlap_count,
     u64 schedule_write_sequence, u64 schedule_frame, u64 schedule_tick, u64 pop_frame) {
-    if (end <= start) {
+    if (end <= start || !target_tracking_active.load(std::memory_order_relaxed)) {
         return;
     }
     std::scoped_lock lock{target_ledger_mutex};
@@ -721,7 +726,7 @@ void BufferCacheRuntime::InspectTargetReadbackPop(
 
 void BufferCacheRuntime::ConsumeTargetReadbackRegistration(u64 batch_id, DAddr address,
                                                             u64 size) {
-    if (size == 0) {
+    if (size == 0 || !target_tracking_active.load(std::memory_order_relaxed)) {
         return;
     }
     std::scoped_lock lock{target_ledger_mutex};
@@ -745,13 +750,16 @@ void BufferCacheRuntime::ConsumeTargetReadbackRegistration(u64 batch_id, DAddr a
 
 void BufferCacheRuntime::LogTargetReadbackBatchPop(u64 batch_id, u64 schedule_frame,
                                                    u64 schedule_tick, u64 pop_frame) {
+    if (!target_tracking_active.load(std::memory_order_relaxed)) {
+        return;
+    }
     std::scoped_lock lock{target_ledger_mutex};
     if (target_readback_batches.erase(batch_id) == 0) {
         return;
     }
     const u64 pop_tick = scheduler.CurrentTick();
     PipelineAudit::Log(
-        "TARGET_ASYNC_BATCH_POP batch_id={} schedule_frame={} pop_frame={} pop_latency_frames={} schedule_tick={} pop_tick={} pop_latency_ticks={}",
+        "TARGET_ASYNC_BATCH_POP batch_id={} schedule_frame={} pop_frame={} pop_latency_frames={} schedule_tick={} pop_tick={} pop_latency_ticks={} fence_driven=true",
         batch_id, schedule_frame, pop_frame,
         pop_frame >= schedule_frame ? pop_frame - schedule_frame : 0,
         schedule_tick, pop_tick, pop_tick >= schedule_tick ? pop_tick - schedule_tick : 0);
@@ -761,7 +769,7 @@ void BufferCacheRuntime::RecordTargetSynchronousDownload(const char* phase, DAdd
                                                          u64 size, u64 readback_id,
                                                          u64 write_sequence,
                                                          u64 frame_tick) {
-    if (size == 0) {
+    if (size == 0 || !target_tracking_active.load(std::memory_order_relaxed)) {
         return;
     }
     std::scoped_lock lock{target_ledger_mutex};
@@ -778,7 +786,7 @@ void BufferCacheRuntime::RecordTargetSynchronousDownload(const char* phase, DAdd
             continue;
         }
         PipelineAudit::Log(
-            "TARGET_SYNC_READBACK phase={} readback_id={} address={:#x} size={} scheduled_write_sequence={} latest_write_sequence={} ledger_gpu_owned={} frame={} scheduler_tick={}",
+            "TARGET_SYNC_READBACK phase={} readback_id={} address={:#x} size={} scheduled_write_sequence={} latest_write_sequence={} ledger_gpu_owned={} frame={} scheduler_tick={} fence_driven=false",
             phase, readback_id, start, finish - start, write_sequence,
             it->second.latest_write_sequence, it->second.gpu_owned, frame_tick, tick);
     }
