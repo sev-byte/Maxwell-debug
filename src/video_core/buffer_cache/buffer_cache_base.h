@@ -218,6 +218,14 @@ class BufferCache : public VideoCommon::ChannelSetupCaches<BufferCacheChannelInf
         bool has_stream_leap = false;
     };
 
+    struct PendingDownload {
+        BufferCopy copy;
+        u64 batch_id{};
+        u64 schedule_frame{};
+        u64 schedule_tick{};
+        u64 schedule_write_sequence{};
+    };
+
 public:
     explicit BufferCache(Tegra::MaxwellDeviceMemoryManager& device_memory_, Runtime& runtime_);
 
@@ -519,7 +527,7 @@ private:
     // Async Buffers
     Common::OverlapRangeSet<DAddr> async_downloads;
     std::deque<std::optional<Async_Buffer>> async_buffers;
-    std::deque<boost::container::small_vector<BufferCopy, 4>> pending_downloads;
+    std::deque<boost::container::small_vector<PendingDownload, 4>> pending_downloads;
     std::optional<Async_Buffer> current_buffer;
 
     std::deque<Async_Buffer> async_buffers_death_ring;
