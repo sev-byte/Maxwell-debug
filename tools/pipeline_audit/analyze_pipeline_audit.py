@@ -24,6 +24,9 @@ EVENT_NAMES = {
     "DESCRIPTOR_SET_SLOT", "DESCRIPTOR_SET_COMMIT", "DESCRIPTOR_BUFFER_ALLOC",
     "DESCRIPTOR_BUFFER_FRAME", "DESCRIPTOR_BUFFER_TOUCH", "DESCRIPTOR_CLASS_BIND",
     "WALL_CLOCK_ANCHOR",
+    "READBACK_STAGING_CREATE", "READBACK_STAGING_REUSE", "READBACK_STAGING_RELEASE",
+    "READBACK_BATCH_BEGIN", "READBACK_BARRIER", "READBACK_COPY",
+    "HOST_READBACK_WRITEBACK",
     "DESCRIPTOR_BUFFER_REUSE_WAIT_BEGIN", "DESCRIPTOR_BUFFER_REUSE_WAIT_END",
     "DESCRIPTOR_BUFFER_CHUNK_STALL_BEGIN", "DESCRIPTOR_BUFFER_CHUNK_STALL_END",
     "SUBMISSION_SCHEDULE", "SUBMISSION_ACCEPTED", "GPU_TICK_COMPLETE",
@@ -353,11 +356,13 @@ def main() -> int:
     expected_ticks.clear()
     outbound_transfer_records: list[tuple[int, dict[str, str]]] = []
     destination_handles: set[int] = set()
+    readback_copy_records: list[tuple[int, dict[str, str]]] = []
+    readback_staging_handles: set[int] = set()
     timeline_event_counts: Counter[str] = Counter()
     resource_events = {
         "BUFFER_CREATE", "BUFFER_USAGE", "BUFFER_USAGE_RESET",
         "UPLOAD_REORDER_RANGE", "UPLOAD_REORDER_DECISION",
-        "BUFFER_TRANSFER", "BUFFER_TRANSFER_BATCH", "BUFFER_CLEAR",
+        "BUFFER_TRANSFER", "BUFFER_TRANSFER_BATCH", "BUFFER_CLEAR", "READBACK_COPY",
     }
     descriptor_events = {
         "DESCRIPTOR_SET_SLOT", "DESCRIPTOR_SET_COMMIT",
@@ -380,8 +385,10 @@ def main() -> int:
                 handle = parse_int(fields.get("buffer"))
                 src = parse_int(fields.get("src"))
                 dst = parse_int(fields.get("dst"))
+                readback_src = parse_int(fields.get("source_buffer"))
                 relevant = (handle in target_handles or
-                            src in target_handles or dst in target_handles)
+                            src in target_handles or dst in target_handles or
+                            (event == "READBACK_COPY" and readback_src in target_handles))
             elif event in descriptor_events:
                 relevant = parse_int(fields.get("target_hash")) == target_hash
             if not relevant:
@@ -394,11 +401,49 @@ def main() -> int:
                 if src in target_handles and dst is not None:
                     outbound_transfer_records.append((seq, fields))
                     destination_handles.add(dst)
+            elif event == "READBACK_COPY":
+                src = parse_int(fields.get("source_buffer"))
+                staging = parse_int(fields.get("staging_buffer"))
+                if src in target_handles and staging is not None:
+                    readback_copy_records.append((seq, fields))
+                    readback_staging_handles.add(staging)
             for key in ("expected_submit_tick", "tick", "reset_tick",
                         "last_usage_tick", "previous_use_tick", "assigned_use_tick"):
                 tick = parse_int(fields.get(key))
                 if tick is not None and tick > 0:
                     expected_ticks.add(tick)
+
+    # Pass 2c: resolve the readback staging lifecycle and CPU writeback
+    # for any staging buffer populated from the target Vulkan buffer.
+    readback_events: list[tuple[int, str, dict[str, str]]] = []
+    readback_event_counts: Counter[str] = Counter()
+    readback_host_bytes = 0
+    readback_guest_ranges: Counter[str] = Counter()
+    if readback_staging_handles:
+        readback_names = {
+            "READBACK_STAGING_CREATE", "READBACK_STAGING_REUSE",
+            "READBACK_STAGING_RELEASE", "READBACK_BATCH_BEGIN",
+            "READBACK_BARRIER", "READBACK_COPY", "HOST_READBACK_WRITEBACK",
+        }
+        with args.log.open("r", encoding="utf-8", errors="replace") as stream:
+            for line in stream:
+                parsed = audit_parts(line)
+                if parsed is None:
+                    continue
+                seq, event, body = parsed
+                if event not in readback_names:
+                    continue
+                fields = parse_fields(body)
+                staging = parse_int(fields.get("staging_buffer"))
+                if staging not in readback_staging_handles:
+                    continue
+                readback_events.append((seq, event, fields))
+                readback_event_counts[event] += 1
+                if event == "HOST_READBACK_WRITEBACK":
+                    size = parse_int(fields.get("size")) or 0
+                    guest = fields.get("guest_cpu_addr", "unknown")
+                    readback_host_bytes += size
+                    readback_guest_ranges[guest] += size
 
     # Pass 2c: derive the next hop by finding every descriptor/bind/usage
     # reference to buffers that received copies from the target buffer.
@@ -617,6 +662,24 @@ def main() -> int:
         print(f"  pair={rank} dispatch_seq={dispatch_seq} dispatch_tick={dispatch_tick} "
               f"copy_seq={copy_seq} copy_tick={copy_tick} delta={copy_tick - dispatch_tick}")
     print(f"Target buffer timeline records: {len(timeline)}")
+    print(f"Readback staging buffers sourced from target: {len(readback_staging_handles)}")
+    print(f"Target-sourced readback copy records: {len(readback_copy_records)}")
+    print(f"Host readback guest-memory writeback records: {readback_event_counts.get('HOST_READBACK_WRITEBACK', 0)}")
+    print(f"Host readback bytes written to guest memory: {readback_host_bytes}")
+    print("Readback lifecycle event counts:")
+    for name, count in sorted(readback_event_counts.items()):
+        print(f"  {name}={count}")
+    print("Readback staging handles:")
+    for handle in sorted(readback_staging_handles):
+        print(f"  staging_buffer={hex(handle)}")
+    print("Readback guest destination ranges (CPU address -> bytes written):")
+    for guest, byte_count in sorted(readback_guest_ranges.items()):
+        print(f"  guest_cpu_addr={guest} bytes={byte_count}")
+    for seq, event, fields in readback_events[:2000]:
+        print(f"  seq={seq} {event} " +
+              " ".join(f"{key}={value}" for key, value in fields.items()))
+    if len(readback_events) > 2000:
+        print(f"  ... {len(readback_events)-2000} additional readback lifecycle events omitted")
     print(f"Outbound destination VkBuffers: {len(destination_handles)}")
     for dst_handle in sorted(destination_handles):
         meta = buffer_metadata.get(dst_handle, {})
