@@ -259,7 +259,7 @@ bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 am
         return false;
     }
 
-    ClearDownload(*cpu_dest_address, amount);
+    ClearDownload(*cpu_dest_address, amount, "DMACopy");
 
     BufferId buffer_a;
     BufferId buffer_b;
@@ -288,10 +288,23 @@ bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 am
     };
     gpu_modified_ranges.ForEachInRange(*cpu_src_address, amount, mirror);
     // This subtraction in this order is important for overlapping copies.
+    if constexpr (requires {
+                      runtime.RecordTargetOwnershipClear(*cpu_dest_address, amount,
+                                                          "DMACopyDestinationReplace",
+                                                          u64{}, u64{}, frame_tick);
+                  }) {
+        runtime.RecordTargetOwnershipClear(*cpu_dest_address, amount,
+                                           "DMACopyDestinationReplace", 0, 0, frame_tick);
+    }
     gpu_modified_ranges.Subtract(*cpu_dest_address, amount);
     const bool has_new_downloads = tmp_intervals.size() != 0;
     for (const auto& pair : tmp_intervals) {
         gpu_modified_ranges.Add(pair.first, pair.second);
+        if constexpr (requires {
+                          runtime.RecordTargetGpuWrite(pair.first, pair.second, frame_tick);
+                      }) {
+            runtime.RecordTargetGpuWrite(pair.first, pair.second, frame_tick);
+        }
     }
     const auto& copy = copies[0];
     src_buffer.MarkUsage(copy.src_offset, copy.size);
@@ -323,7 +336,14 @@ bool BufferCache<P>::DMAClear(GPUVAddr dst_address, u64 amount, u32 value) {
     }
 
     const size_t size = amount * sizeof(u32);
-    ClearDownload(*cpu_dst_address, size);
+    ClearDownload(*cpu_dst_address, size, "DMAClear");
+    if constexpr (requires {
+                      runtime.RecordTargetOwnershipClear(*cpu_dst_address, size, "DMAClear",
+                                                          u64{}, u64{}, frame_tick);
+                  }) {
+        runtime.RecordTargetOwnershipClear(*cpu_dst_address, size, "DMAClear", 0, 0,
+                                           frame_tick);
+    }
     gpu_modified_ranges.Subtract(*cpu_dst_address, size);
 
     const BufferId buffer = FindBuffer(*cpu_dst_address, static_cast<u32>(size), false);
@@ -365,7 +385,16 @@ std::pair<typename P::Buffer*, u32> BufferCache<P>::ObtainCPUBuffer(
         MarkWrittenBuffer(buffer_id, device_addr, size);
         break;
     case ObtainBufferOperation::DiscardWrite: {
-        ClearDownload(device_addr, size);
+        ClearDownload(device_addr, size, "ObtainCPUBuffer::DiscardWrite");
+        if constexpr (requires {
+                          runtime.RecordTargetOwnershipClear(device_addr, size,
+                                                              "ObtainCPUBuffer::DiscardWrite",
+                                                              u64{}, u64{}, frame_tick);
+                      }) {
+            runtime.RecordTargetOwnershipClear(device_addr, size,
+                                               "ObtainCPUBuffer::DiscardWrite", 0, 0,
+                                               frame_tick);
+        }
         gpu_modified_ranges.Subtract(device_addr, size);
         break;
     }
