@@ -655,7 +655,7 @@ void BufferCacheRuntime::RegisterTargetReadback(u64 batch_id, DAddr address, u64
     }
     if (touched_target && target_readback_batches.insert(batch_id).second) {
         PipelineAudit::Log(
-            "TARGET_ASYNC_BATCH_SCHEDULED batch_id={} requested_bytes={} copy_count={} schedule_frame={} schedule_tick={} schedule_write_sequence={}",
+            "TARGET_ASYNC_BATCH_SCHEDULED batch_id={} requested_bytes={} copy_count={} schedule_frame={} schedule_tick={} schedule_write_sequence={} fence_driven=true",
             batch_id, total_size, copy_count, schedule_frame, schedule_tick,
             schedule_write_sequence);
     }
