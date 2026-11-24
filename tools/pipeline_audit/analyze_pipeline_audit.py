@@ -419,6 +419,7 @@ def main() -> int:
     readback_event_counts: Counter[str] = Counter()
     readback_host_bytes = 0
     readback_guest_ranges: Counter[str] = Counter()
+    readback_guest_intervals: list[tuple[int, int, int, int]] = []
     if readback_staging_handles:
         readback_names = {
             "READBACK_STAGING_CREATE", "READBACK_STAGING_REUSE",
@@ -441,9 +442,12 @@ def main() -> int:
                 readback_event_counts[event] += 1
                 if event == "HOST_READBACK_WRITEBACK":
                     size = parse_int(fields.get("size")) or 0
-                    guest = fields.get("guest_cpu_addr", "unknown")
+                    guest_text = fields.get("guest_cpu_addr", "unknown")
+                    guest = parse_int(guest_text)
                     readback_host_bytes += size
-                    readback_guest_ranges[guest] += size
+                    readback_guest_ranges[guest_text] += size
+                    if guest is not None and size > 0:
+                        readback_guest_intervals.append((seq, guest, guest + size, staging))
 
     # Pass 2c: derive the next hop by finding every descriptor/bind/usage
     # reference to buffers that received copies from the target buffer.
@@ -512,6 +516,70 @@ def main() -> int:
                     entry["offsets"].add(fields["offset"])
                 if fields.get("range") is not None:
                     entry["ranges"].add(fields["range"])
+
+    # Pass 2d: after each host writeback, find later descriptor and usage
+    # records whose backing CPU ranges overlap the guest-memory bytes written.
+    # This follows the data beyond the temporary Download staging buffer.
+    guest_consumer_events = {
+        "DESCRIPTOR_WRITE", "DESCRIPTOR_CLASS_BIND", "COMPUTE_BUFFER_BIND",
+        "BUFFER_USAGE",
+    }
+    guest_consumer_groups: dict[
+        tuple[str, str, str, str, str, str], dict[str, object]
+    ] = {}
+    guest_consumer_unresolved_context = 0
+    if readback_guest_intervals:
+        with args.log.open("r", encoding="utf-8", errors="replace") as stream:
+            for line in stream:
+                parsed = audit_parts(line)
+                if parsed is None:
+                    continue
+                seq, event, body = parsed
+                if event not in guest_consumer_events:
+                    continue
+                fields = parse_fields(body)
+                backing = parse_int(fields.get("backing_cpu_addr"))
+                if backing is None:
+                    continue
+                resource_offset = safe_value(fields, "resource_offset", "offset") or 0
+                resource_range = safe_value(fields, "resource_range", "range")
+                resource_start = backing + resource_offset
+                resource_end = resource_start + (resource_range if resource_range and resource_range > 0 else 1)
+                matched_intervals = [
+                    interval for interval in readback_guest_intervals
+                    if seq > interval[0] and resource_start < interval[2] and interval[1] < resource_end
+                ]
+                if not matched_intervals:
+                    continue
+
+                target_kind = fields.get("target_kind", "unknown")
+                shader = fields.get("target_hash", "unknown")
+                stage = fields.get("stage", "unknown")
+                resource_kind = fields.get("resource_kind", fields.get("kind", event))
+                access = fields.get("is_written", "not_recorded")
+                if target_kind == "unknown" or shader == "unknown":
+                    guest_consumer_unresolved_context += 1
+                key = (target_kind, shader, stage, event, resource_kind, access)
+                entry = guest_consumer_groups.setdefault(
+                    key, {"count": 0, "first_seq": seq, "last_seq": seq,
+                          "backing_cpu_addrs": set(), "guest_gpu_addrs": set(),
+                          "ranges": set(), "readback_intervals": set(),
+                          "buffer_handles": set()}
+                )
+                entry["count"] = int(entry["count"]) + 1
+                entry["last_seq"] = seq
+                entry["backing_cpu_addrs"].add(hex(backing))
+                if fields.get("guest_gpu_addr") is not None:
+                    entry["guest_gpu_addrs"].add(fields["guest_gpu_addr"])
+                if resource_range is not None:
+                    entry["ranges"].add(str(resource_range))
+                handle = safe_value(fields, "buffer", "handle")
+                if handle is not None:
+                    entry["buffer_handles"].add(hex(handle))
+                for interval in matched_intervals:
+                    entry["readback_intervals"].add(
+                        f"{hex(interval[1])}-{hex(interval[2])}"
+                    )
 
     # Group target-buffer outbound copies by their scheduler tick, then pair
     # the groups with target dispatches by global sequence rank (k-th to k-th).
@@ -675,6 +743,21 @@ def main() -> int:
     print("Readback guest destination ranges (CPU address -> bytes written):")
     for guest, byte_count in sorted(readback_guest_ranges.items()):
         print(f"  guest_cpu_addr={guest} bytes={byte_count}")
+    print(f"Later shader/buffer usage records overlapping readback ranges: {sum(int(v['count']) for v in guest_consumer_groups.values())}")
+    print(f"Later consumer records without shader context: {guest_consumer_unresolved_context}")
+    print("Shaders and buffer-usage events referencing guest-memory ranges after readback:")
+    for key, value in sorted(guest_consumer_groups.items()):
+        target_kind, shader, stage, event, resource_kind, access = key
+        print(
+            f"  target_kind={target_kind} shader={shader} stage={stage} event={event} "
+            f"resource_kind={resource_kind} is_written={access} count={value['count']} "
+            f"first_seq={value['first_seq']} last_seq={value['last_seq']} "
+            f"backing_cpu_addrs={','.join(sorted(value['backing_cpu_addrs']))} "
+            f"guest_gpu_addrs={','.join(sorted(value['guest_gpu_addrs']))} "
+            f"ranges={','.join(sorted(value['ranges']))} "
+            f"buffers={','.join(sorted(value['buffer_handles']))} "
+            f"readback_ranges={','.join(sorted(value['readback_intervals']))}"
+        )
     for seq, event, fields in readback_events[:2000]:
         print(f"  seq={seq} {event} " +
               " ".join(f"{key}={value}" for key, value in fields.items()))
