@@ -1,0 +1,53 @@
+name: Create Build 3A Diagnostic Log Upload
+
+on:
+  push:
+    branches:
+      - maxwell-pipeline-transfer-audit-build3a-ownership-timeline
+    paths:
+      - '.github/workflows/create-build3a-log-drop.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  create-log-release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create persistent Build 3A log release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag_name = 'build3a-android-test-logs';
+            try {
+              await github.rest.repos.getReleaseByTag({ owner, repo, tag: tag_name });
+              core.info(`Release ${tag_name} already exists; leaving it unchanged.`);
+              return;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+            const body = [
+              'Persistent upload location for diagnostic captures from the Build 3A Android ownership-timeline test.',
+              '',
+              'Upload the raw `.log` file or a compressed `.zip` as a release asset. Each individual file must be smaller than 2 GiB.',
+              '',
+              'Please include the capture date/time, device, Eden build, renderer, and test route in the filename or a short accompanying note.',
+              '',
+              'For this capture, use the Helgen Keep entrance chandelier first, then the first forge-side fireplace. Do not change test settings between the two locations unless the capture notes say so.',
+              '',
+              'This release is a log drop only; it does not change or replace the Build 3A APK.'
+            ].join('\n');
+
+            const { data: release } = await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name,
+              target_commitish: context.sha,
+              name: 'Build 3A Android Test Logs',
+              body,
+              draft: false,
+              prerelease: false,
+              make_latest: 'false'
+            });
+            core.info(`Created upload location: ${release.html_url}`);
