@@ -32,6 +32,13 @@ MARKERS = [
     "PIPELINE_BIND",
     "DESCRIPTOR_CLASS_BIND",
     "COMPUTE_DISPATCH",
+    "[Shader] Compiled:",
+    "vkCmdDraw(",
+    "vkCmdDrawIndexed(",
+    "vkCmdDrawIndirect(",
+    "vkCmdDrawIndexedIndirect(",
+    "vkCmdDrawIndirectCount(",
+    "vkCmdDrawIndexedIndirectCount(",
     "COMPUTE_BUFFER_BIND",
     "COMPUTE_MULTI_RANGE_SEGMENT",
     "FRAME_METRICS",
@@ -87,8 +94,14 @@ with zipfile.ZipFile(ARCHIVE, "r") as zf:
         dw = csv.writer(dispatch_file)
         fw.writerow(["timestamp", "frame", "elapsed_us", "scheduler_tick", "raw_line"])
         dw.writerow(["timestamp", "frame", "dispatch_mode", "x", "y", "z", "scheduler_tick", "raw_line"])
+        with (OUT / "shader_compilation.csv").open("w", newline="", encoding="utf-8") as shader_file, \\
+             (OUT / "draw_calls.csv").open("w", newline="", encoding="utf-8") as draw_file:
+            sw = csv.writer(shader_file)
+            vw = csv.writer(draw_file)
+            sw.writerow(["timestamp", "shader_name", "shader_hash", "stage", "spirv_bytes", "raw_line"])
+            vw.writerow(["timestamp", "call_name", "thread", "parameters", "result", "raw_line"])
 
-        for info in log_infos:
+            for info in log_infos:
             source_files.append((info.filename, info.file_size))
             with stream_member(zf, info) as stream:
                 for raw_line in stream:
@@ -125,6 +138,15 @@ with zipfile.ZipFile(ARCHIVE, "r") as zf:
                                      kv.get("z", kv.get("groups_z", "")),
                                      kv.get("scheduler_tick", ""), line[:1000]])
                         dispatch_rows += 1
+                    if "[Shader] Compiled:" in line:
+                        sm = re.search(r"\\[Shader\\] Compiled: (\\S+) \\(SPIR-V size: (\\d+) bytes, hash: (0x?[0-9a-fA-F]+)\\)", line)
+                        if sm:
+                            sw.writerow([ts, sm.group(1), sm.group(3), sm.group(1).rsplit("_", 1)[-1],
+                                         sm.group(2), line[:1000]])
+                    if "[Vulkan]" in line and "vkCmdDraw" in line:
+                        vm = re.search(r"\\[Thread:(\\d+)\\] (vkCmdDraw\\w*)\\((.*)\\) -> (.*)$", line)
+                        if vm:
+                            vw.writerow([ts, vm.group(2), vm.group(1), vm.group(3), vm.group(4), line[:1200]])
 
 summary = []
 summary.append("# Build 3A capture — streamed triage")
