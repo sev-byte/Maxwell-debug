@@ -650,8 +650,20 @@ void BufferCache<P>::CommitAsyncFlushesHigh() {
         return;
     }
     auto download_staging = runtime.DownloadStagingBuffer(total_size_bytes, true);
+    if constexpr (requires {
+                      runtime.LogReadbackBatchBegin(download_staging, total_size_bytes,
+                                                    downloads.size());
+                  }) {
+        runtime.LogReadbackBatchBegin(download_staging, total_size_bytes, downloads.size());
+    }
     boost::container::small_vector<BufferCopy, 4> normalized_copies;
     runtime.PreCopyBarrier();
+    if constexpr (requires {
+                      runtime.LogReadbackBarrier(download_staging, "pre", total_size_bytes,
+                                                 downloads.size());
+                  }) {
+        runtime.LogReadbackBarrier(download_staging, "pre", total_size_bytes, downloads.size());
+    }
     for (auto& [copy, buffer_id] : downloads) {
         copy.dst_offset += download_staging.offset;
         const std::array copies{copy};
@@ -662,9 +674,23 @@ void BufferCache<P>::CommitAsyncFlushesHigh() {
         async_downloads.Add(orig_device_addr, copy.size);
         buffer.MarkUsage(copy.src_offset, copy.size);
         runtime.CopyBuffer(download_staging.buffer, buffer, copies, false);
+        if constexpr (requires {
+                          runtime.LogReadbackCopy(download_staging, buffer.Handle(),
+                                                  buffer.CpuAddr(), copy.src_offset,
+                                                  copy.dst_offset, copy.size);
+                      }) {
+            runtime.LogReadbackCopy(download_staging, buffer.Handle(), buffer.CpuAddr(),
+                                    copy.src_offset, copy.dst_offset, copy.size);
+        }
         normalized_copies.push_back(second_copy);
     }
     runtime.PostCopyBarrier();
+    if constexpr (requires {
+                      runtime.LogReadbackBarrier(download_staging, "post", total_size_bytes,
+                                                 downloads.size());
+                  }) {
+        runtime.LogReadbackBarrier(download_staging, "post", total_size_bytes, downloads.size());
+    }
     pending_downloads.emplace_back(std::move(normalized_copies));
     async_buffers.emplace_back(download_staging);
 }
@@ -697,6 +723,14 @@ void BufferCache<P>::PopAsyncBuffers() {
         const u64 dst_offset = copy.dst_offset - base_offset;
         const u8* read_mapped_memory = base + dst_offset;
         async_downloads.ForEachInRange(device_addr, copy.size, [&](DAddr start, DAddr end, s32) {
+            if constexpr (requires {
+                              runtime.LogHostReadback(*async_buffer, start,
+                                                      dst_offset + (start - device_addr),
+                                                      u64{end - start});
+                          }) {
+                runtime.LogHostReadback(*async_buffer, start,
+                                        dst_offset + (start - device_addr), end - start);
+            }
             device_memory.WriteBlockUnsafe(start, &read_mapped_memory[start - device_addr],
                                            end - start);
         });
