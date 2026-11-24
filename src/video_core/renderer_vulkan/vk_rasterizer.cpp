@@ -848,8 +848,10 @@ bool RasterizerVulkan::MustFlushRegion(DAddr addr, u64 size, VideoCommon::CacheT
     if ((True(which & VideoCommon::CacheType::BufferCache))) {
         std::scoped_lock lock{buffer_cache.mutex};
         const bool cache_gpu_owned = buffer_cache.IsRegionGpuModified(addr, size);
+        const bool tracker_gpu_owned =
+            buffer_cache.IsMemoryTrackerRegionGpuModified(addr, size);
         buffer_cache.runtime.RecordTargetOwnershipDecision(
-            "Vulkan.MustFlushRegion", addr, size, cache_gpu_owned, false, false,
+            "Vulkan.MustFlushRegion", addr, size, cache_gpu_owned, tracker_gpu_owned, false,
             audit_frame_number);
         if (cache_gpu_owned) {
             return true;
