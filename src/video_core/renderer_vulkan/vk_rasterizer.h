@@ -7,6 +7,7 @@
 #pragma once
 
 #include <array>
+#include <chrono>
 
 #include <boost/container/static_vector.hpp>
 
@@ -243,6 +244,11 @@ private:
     boost::container::static_vector<VkSampler, MAX_TEXTURES> sampler_handles;
 
     u32 draw_counter = 0;
+
+    // Build 3A frame timing; one compact event per emulated frame.
+    std::chrono::steady_clock::time_point audit_last_frame_time{
+        std::chrono::steady_clock::now()};
+    u64 audit_frame_number{};
 };
 
 } // namespace Vulkan
