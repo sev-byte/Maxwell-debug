@@ -420,6 +420,8 @@ def main() -> int:
     readback_host_bytes = 0
     readback_guest_ranges: Counter[str] = Counter()
     readback_guest_intervals: list[tuple[int, int, int, int]] = []
+    readback_completion_matches: list[tuple[int, int, int, bool]] = []
+    readback_completion_unresolved = 0
     if readback_staging_handles:
         readback_names = {
             "READBACK_STAGING_CREATE", "READBACK_STAGING_REUSE",
@@ -448,6 +450,43 @@ def main() -> int:
                     readback_guest_ranges[guest_text] += size
                     if guest is not None and size > 0:
                         readback_guest_intervals.append((seq, guest, guest + size, staging))
+
+    # For each CPU writeback segment, match the most recent preceding copy
+    # that populated the overlapping offset in the same staging VkBuffer.
+    copies_by_staging: dict[int, list[tuple[int, dict[str, str]]]] = {}
+    for copy_seq, fields in readback_copy_records:
+        staging = parse_int(fields.get("staging_buffer"))
+        if staging is not None:
+            copies_by_staging.setdefault(staging, []).append((copy_seq, fields))
+    for write_seq, event, fields in readback_events:
+        if event != "HOST_READBACK_WRITEBACK":
+            continue
+        staging = parse_int(fields.get("staging_buffer"))
+        host_offset = parse_int(fields.get("staging_offset"))
+        host_size = parse_int(fields.get("size"))
+        observed_tick = parse_int(fields.get("observed_completed_tick"))
+        if staging is None or host_offset is None or host_size is None or observed_tick is None:
+            readback_completion_unresolved += 1
+            continue
+        host_end = host_offset + host_size
+        matches = []
+        for copy_seq, copy_fields in copies_by_staging.get(staging, []):
+            if copy_seq >= write_seq:
+                continue
+            copy_offset = parse_int(copy_fields.get("staging_offset"))
+            copy_size = parse_int(copy_fields.get("size"))
+            copy_tick = parse_int(copy_fields.get("expected_submit_tick"))
+            if copy_offset is None or copy_size is None or copy_tick is None:
+                continue
+            if copy_offset < host_end and host_offset < copy_offset + copy_size:
+                matches.append((copy_seq, copy_tick))
+        if not matches:
+            readback_completion_unresolved += 1
+            continue
+        copy_seq, expected_tick = max(matches, key=lambda item: item[0])
+        readback_completion_matches.append(
+            (write_seq, expected_tick, observed_tick, observed_tick >= expected_tick)
+        )
 
     # Pass 2c: derive the next hop by finding every descriptor/bind/usage
     # reference to buffers that received copies from the target buffer.
@@ -734,6 +773,15 @@ def main() -> int:
     print(f"Target-sourced readback copy records: {len(readback_copy_records)}")
     print(f"Host readback guest-memory writeback records: {readback_event_counts.get('HOST_READBACK_WRITEBACK', 0)}")
     print(f"Host readback bytes written to guest memory: {readback_host_bytes}")
+    readback_safe = sum(1 for _, _, _, safe in readback_completion_matches if safe)
+    readback_early = sum(1 for _, _, _, safe in readback_completion_matches if not safe)
+    print(f"Host writeback segments matched to a preceding staging copy: {len(readback_completion_matches)}")
+    print(f"Host writeback segments with completed_tick >= copy_submit_tick: {readback_safe}")
+    print(f"Host writeback segments observed before copy completion: {readback_early}")
+    print(f"Host writeback segments without a unique preceding copy match: {readback_completion_unresolved}")
+    for write_seq, expected_tick, observed_tick, safe in readback_completion_matches[:1000]:
+        print(f"  seq={write_seq} expected_copy_tick={expected_tick} "
+              f"observed_completed_tick={observed_tick} completion_safe={str(safe).lower()}")
     print("Readback lifecycle event counts:")
     for name, count in sorted(readback_event_counts.items()):
         print(f"  {name}={count}")
