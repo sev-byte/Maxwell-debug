@@ -991,7 +991,7 @@ void RasterizerVulkan::SignalFence(std::function<void()>&& func) {
         target_buffer_has_uncommitted = buffer_cache.HasUncommittedFlushes();
     }
     PipelineAudit::Log(
-        "FENCE_SIGNAL_BEGIN frame={} scheduler_tick={} gpu_level_high={} fence_delay={} target_buffer_has_uncommitted={}",
+        "FENCE_SIGNAL_BEGIN frame={} scheduler_tick={} gpu_level_high={} fence_delay={} buffer_cache_has_uncommitted_flushes={}",
         audit_frame_number, scheduler.CurrentTick(), Settings::IsGPULevelHigh(), delay_fence,
         target_buffer_has_uncommitted);
     fence_manager.SignalFence(std::move(func));
