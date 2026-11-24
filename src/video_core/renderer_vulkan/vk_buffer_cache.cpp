@@ -587,10 +587,14 @@ void BufferCacheRuntime::RecordTargetOwnershipClear(DAddr address, u64 size,
         const bool newer_write = batch_id != 0 &&
                                  it->second.latest_write_sequence > schedule_write_sequence;
         PipelineAudit::Log(
-            "TARGET_OWNERSHIP_CLEAR reason={} address={:#x} size={} batch_id={} schedule_write_sequence={} latest_write_sequence={} newer_write={} newer_write_bytes={} was_gpu_owned={} latest_write_frame={} clear_frame={} scheduler_tick={}",
+            "TARGET_OWNERSHIP_CLEAR reason={} address={:#x} size={} batch_id={} schedule_write_sequence={} latest_write_sequence={} newer_write={} newer_write_bytes={} was_gpu_owned={} latest_write_frame={} latest_write_age_frames={} clear_frame={} scheduler_tick={}",
             reason, start, bytes, batch_id, schedule_write_sequence,
             it->second.latest_write_sequence, newer_write, newer_write ? bytes : 0,
-            it->second.gpu_owned, it->second.latest_write_frame, frame_tick, tick);
+            it->second.gpu_owned, it->second.latest_write_frame,
+            frame_tick >= it->second.latest_write_frame
+                ? frame_tick - it->second.latest_write_frame
+                : 0,
+            frame_tick, tick);
         it->second.gpu_owned = false;
     }
 }
@@ -716,11 +720,15 @@ void BufferCacheRuntime::InspectTargetReadbackPop(
         const u64 latency_frames =
             pop_frame >= schedule_frame ? pop_frame - schedule_frame : 0;
         PipelineAudit::Log(
-            "TARGET_ASYNC_POP_RANGE popping_batch_id={} address={:#x} size={} overlap_count={} active_registration_count={} oldest_registered_batch_id={} latest_add_batch_id={} contains_popping_batch={} batch_mismatch={} schedule_write_sequence={} latest_write_sequence={} newer_write_bytes={} schedule_frame={} pop_frame={} pop_latency_frames={} schedule_tick={} pop_tick={} pop_latency_ticks={}",
+            "TARGET_ASYNC_POP_RANGE popping_batch_id={} address={:#x} size={} overlap_count={} active_registration_count={} oldest_registered_batch_id={} latest_add_batch_id={} contains_popping_batch={} batch_mismatch={} schedule_write_sequence={} latest_write_sequence={} newer_write_bytes={} latest_write_frame={} data_age_frames={} schedule_frame={} pop_frame={} pop_latency_frames={} schedule_tick={} pop_tick={} pop_latency_ticks={}",
             batch_id, overlap_start, overlap_end - overlap_start, overlap_count,
             registrations.size(), registrations.empty() ? 0 : registrations.front(),
             latest_add, contains_popping_batch, batch_mismatch,
             schedule_write_sequence, it->second.latest_write_sequence, newer_bytes,
+            it->second.latest_write_frame,
+            pop_frame >= it->second.latest_write_frame
+                ? pop_frame - it->second.latest_write_frame
+                : 0,
             schedule_frame, pop_frame, latency_frames, schedule_tick, pop_tick,
             pop_tick >= schedule_tick ? pop_tick - schedule_tick : 0);
     }
@@ -788,9 +796,14 @@ void BufferCacheRuntime::RecordTargetSynchronousDownload(const char* phase, DAdd
             continue;
         }
         PipelineAudit::Log(
-            "TARGET_SYNC_READBACK phase={} readback_id={} address={:#x} size={} scheduled_write_sequence={} latest_write_sequence={} ledger_gpu_owned={} frame={} scheduler_tick={} route=buffer_cache_sync fence_association=untracked",
+            "TARGET_SYNC_READBACK phase={} readback_id={} address={:#x} size={} scheduled_write_sequence={} latest_write_sequence={} ledger_gpu_owned={} latest_write_frame={} data_age_frames={} frame={} scheduler_tick={} route=buffer_cache_sync fence_association=untracked",
             phase, readback_id, start, finish - start, write_sequence,
-            it->second.latest_write_sequence, it->second.gpu_owned, frame_tick, tick);
+            it->second.latest_write_sequence, it->second.gpu_owned,
+            it->second.latest_write_frame,
+            frame_tick >= it->second.latest_write_frame
+                ? frame_tick - it->second.latest_write_frame
+                : 0,
+            frame_tick, tick);
     }
 }
 
