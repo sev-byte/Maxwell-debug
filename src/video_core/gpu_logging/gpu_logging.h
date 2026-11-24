@@ -173,6 +173,7 @@ private:
     mutable std::mutex file_mutex;
     mutable std::mutex audit_mutex;
     u64 audit_sequence = 0;
+    std::chrono::steady_clock::time_point last_wall_clock_anchor{};
     std::atomic<u64> audit_attempted_records{0};
     std::atomic<u64> audit_written_records{0};
     std::atomic<u64> audit_dropped_records{0};
