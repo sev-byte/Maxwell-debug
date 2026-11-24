@@ -75,8 +75,12 @@ private:
     vk::Semaphore semaphore;          ///< Timeline semaphore.
     std::atomic<u64> gpu_tick{0};     ///< Current known GPU tick.
     std::atomic<u64> current_tick{1}; ///< Current logical tick.
+    // Serializes completion audit writes before publishing the completed tick to readers.
+    std::mutex completion_mutex;
     std::mutex wait_mutex;
     std::mutex free_mutex;
+
+    void PublishCompletedTick(u64 tick, const char* source);
     std::condition_variable_any wait_cv;
     std::queue<Waitable> wait_queue;  ///< Queue for the fences to be waited on by the wait thread.
     std::deque<vk::Fence> free_queue; ///< Holds available fences for submission.
