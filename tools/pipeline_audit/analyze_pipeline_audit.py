@@ -135,6 +135,8 @@ def main() -> int:
     wall_clock_anchors: list[tuple[int, dict[str, str]]] = []
     buffer_metadata: dict[int, dict[str, str]] = {}
     target_discoveries: list[tuple[int, dict[str, str]]] = []
+    target_multi_range_segments: list[tuple[int, dict[str, str]]] = []
+    target_multi_range_descriptors: list[tuple[int, dict[str, str]]] = []
     target_bindings: list[tuple[int, str, dict[str, str]]] = []
     target_handles: set[int] = set()
     target_backing_addresses: set[int] = set()
@@ -200,6 +202,8 @@ def main() -> int:
                     if bda is not None:
                         target_bdas.append((bda + (parse_int(fields.get("offset")) or 0), size or 0))
             elif event == "COMPUTE_MULTI_RANGE_SEGMENT":
+                if parse_int(fields.get("target_hash")) == target_hash:
+                    target_multi_range_segments.append((seq, fields))
                 guest = parse_int(fields.get("guest_base_gpu_addr"))
                 size = parse_int(fields.get("guest_total_range"))
                 if in_range(target_gpu_addr, guest, size):
@@ -217,6 +221,8 @@ def main() -> int:
                             parse_int(fields.get("segment_size")) or 0,
                         ))
             elif event == "COMPUTE_MULTI_RANGE_DESCRIPTOR":
+                if parse_int(fields.get("target_hash")) == target_hash:
+                    target_multi_range_descriptors.append((seq, fields))
                 guest = parse_int(fields.get("guest_gpu_addr"))
                 size = safe_value(fields, "resource_range", "guest_range")
                 if in_range(target_gpu_addr, guest, size):
@@ -355,6 +361,7 @@ def main() -> int:
     timeline.clear()
     expected_ticks.clear()
     outbound_transfer_records: list[tuple[int, dict[str, str]]] = []
+    outbound_transfer_contexts: Counter[str] = Counter()
     destination_handles: set[int] = set()
     readback_copy_records: list[tuple[int, dict[str, str]]] = []
     readback_staging_handles: set[int] = set()
@@ -401,6 +408,7 @@ def main() -> int:
                 if src in target_handles and dst is not None:
                     outbound_transfer_records.append((seq, fields))
                     destination_handles.add(dst)
+                    outbound_transfer_contexts[fields.get("target_hash", "no_target_shader_context")] += 1
             elif event == "READBACK_COPY":
                 src = parse_int(fields.get("source_buffer"))
                 staging = parse_int(fields.get("staging_buffer"))
@@ -716,7 +724,17 @@ def main() -> int:
         expected = max((parse_int(f.get("descriptor_entries")) or 0)
                        for _, f in target_discoveries)
         print(f"Expected descriptor entries (maximum seen): {expected}")
-    print(f"Target buffer bindings resolved from COMPUTE_BUFFER_BIND: {len(target_bindings)}")
+    print(f"Target buffer bindings resolved from COMPUTE_BUFFER_BIND or multi-range mapping: {len(target_bindings)}")
+    print(f"Target shader multi-range segments: {len(target_multi_range_segments)}")
+    print(f"Target shader multi-range descriptors: {len(target_multi_range_descriptors)}")
+    for seq, fields in target_multi_range_segments[:100]:
+        print(f"  seq={seq} COMPUTE_MULTI_RANGE_SEGMENT guest_base={fields.get('guest_base_gpu_addr','?')} "
+              f"guest_range={fields.get('guest_total_range','?')} segment_index={fields.get('segment_index','?')} "
+              f"buffer={fields.get('buffer','?')} source_offset={fields.get('source_offset','?')} "
+              f"segment_size={fields.get('segment_size','?')}")
+    for seq, fields in target_multi_range_descriptors[:100]:
+        print(f"  seq={seq} COMPUTE_MULTI_RANGE_DESCRIPTOR guest_gpu_addr={fields.get('guest_gpu_addr','?')} "
+              f"descriptor_buffer={fields.get('descriptor_buffer','?')} needs_gather={fields.get('needs_gather','?')}")
     print(f"Target VkBuffer handles resolved from matching descriptor writes: {len(target_handles)}")
     for handle in sorted(target_handles):
         print(f"  VkBuffer={hex(handle)}")
@@ -753,6 +771,9 @@ def main() -> int:
     print(f"Target compute dispatches: {target_dispatches}")
     print(f"Target compute dispatch ticks: {len(dispatch_tick_set)}")
     print(f"Target-buffer outbound transfer ticks: {len(transfer_tick_set)}")
+    print("Target outbound transfer context counts:")
+    for context, count in sorted(outbound_transfer_contexts.items()):
+        print(f"  target_hash={context} copies={count}")
     print(f"Exact same-tick intersections (not sequence pairing): {len(common_transfer_dispatch_ticks)}")
     print(f"Dispatches paired by sequence rank: {pair_count}")
     print("K-th dispatch to k-th outbound copy-group tick delta histogram (copy_tick - dispatch_tick):")
