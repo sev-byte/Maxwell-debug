@@ -234,20 +234,26 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
     scheduler.SetQueryCache(query_cache);
 #ifdef __ANDROID__
     const u32 capture_log_level = static_cast<u32>(Settings::values.gpu_log_level.GetValue());
+    const u32 active_logger_level = static_cast<u32>(
+        GPU::Logging::GPULogger::GetInstance().GetLogLevel());
     const bool optimized_vertex_buffers =
         Settings::values.use_optimized_vertex_buffers.GetValue();
     LOG_INFO(Render_Vulkan,
-             "[CaptureConfig] renderer=Vulkan gpu_log_level={} use_optimized_vertex_buffers={}",
-             capture_log_level, optimized_vertex_buffers);
+             "[CaptureConfig] renderer=Vulkan gpu_log_level={} active_logger_level={} use_optimized_vertex_buffers={}",
+             capture_log_level, active_logger_level, optimized_vertex_buffers);
     PipelineAudit::Log(
-        "CAPTURE_CONFIG renderer=Vulkan gpu_log_level={} use_optimized_vertex_buffers={}",
-        capture_log_level, optimized_vertex_buffers);
+        "CAPTURE_CONFIG renderer=Vulkan gpu_log_level={} active_logger_level={} use_optimized_vertex_buffers={}",
+        capture_log_level, active_logger_level, optimized_vertex_buffers);
 #else
     const u32 capture_log_level = static_cast<u32>(Settings::values.gpu_log_level.GetValue());
-    LOG_INFO(Render_Vulkan, "[CaptureConfig] renderer=Vulkan gpu_log_level={} platform=non_android",
-             capture_log_level);
-    PipelineAudit::Log("CAPTURE_CONFIG renderer=Vulkan gpu_log_level={} platform=non_android",
-                       capture_log_level);
+    const u32 active_logger_level = static_cast<u32>(
+        GPU::Logging::GPULogger::GetInstance().GetLogLevel());
+    LOG_INFO(Render_Vulkan,
+             "[CaptureConfig] renderer=Vulkan gpu_log_level={} active_logger_level={} platform=non_android",
+             capture_log_level, active_logger_level);
+    PipelineAudit::Log(
+        "CAPTURE_CONFIG renderer=Vulkan gpu_log_level={} active_logger_level={} platform=non_android",
+        capture_log_level, active_logger_level);
 #endif
 }
 
