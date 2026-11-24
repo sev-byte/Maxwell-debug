@@ -22,7 +22,8 @@ EVENT_NAMES = {
     "IMAGE_TO_BUFFER_REQUEST", "IMAGE_TO_BUFFER_DESTINATION", "COMPUTE_DISPATCH",
     "COMPUTE_MULTI_RANGE_SEGMENT", "COMPUTE_MULTI_RANGE_DESCRIPTOR",
     "DESCRIPTOR_SET_SLOT", "DESCRIPTOR_SET_COMMIT", "DESCRIPTOR_BUFFER_ALLOC",
-    "DESCRIPTOR_BUFFER_FRAME", "DESCRIPTOR_BUFFER_TOUCH",
+    "DESCRIPTOR_BUFFER_FRAME", "DESCRIPTOR_BUFFER_TOUCH", "DESCRIPTOR_CLASS_BIND",
+    "WALL_CLOCK_ANCHOR",
     "DESCRIPTOR_BUFFER_REUSE_WAIT_BEGIN", "DESCRIPTOR_BUFFER_REUSE_WAIT_END",
     "DESCRIPTOR_BUFFER_CHUNK_STALL_BEGIN", "DESCRIPTOR_BUFFER_CHUNK_STALL_END",
     "SUBMISSION_SCHEDULE", "SUBMISSION_ACCEPTED", "GPU_TICK_COMPLETE",
@@ -40,7 +41,8 @@ KV_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)=(".*?"|\S+)')
 FIRST_PASS = {
     "TARGET_DISCOVERY", "COMPUTE_BUFFER_BIND",
     "COMPUTE_MULTI_RANGE_SEGMENT", "COMPUTE_MULTI_RANGE_DESCRIPTOR",
-    "BUFFER_VIEW_CREATE", "IMAGE_VIEW_CREATE", "CAPTURE_CONFIG",
+    "BUFFER_CREATE", "BUFFER_VIEW_CREATE", "IMAGE_VIEW_CREATE",
+    "CAPTURE_CONFIG", "WALL_CLOCK_ANCHOR",
 }
 SECOND_PASS = {
     "DESCRIPTOR_WRITE", "BUFFER_USAGE", "BUFFER_USAGE_RESET",
@@ -127,6 +129,8 @@ def main() -> int:
     # Pass 1: establish the target's resource identity and view mappings.
     event_counts: Counter[str] = Counter()
     capture_configs: list[dict[str, str]] = []
+    wall_clock_anchors: list[tuple[int, dict[str, str]]] = []
+    buffer_metadata: dict[int, dict[str, str]] = {}
     target_discoveries: list[tuple[int, dict[str, str]]] = []
     target_bindings: list[tuple[int, str, dict[str, str]]] = []
     target_handles: set[int] = set()
@@ -169,6 +173,12 @@ def main() -> int:
 
             if event == "CAPTURE_CONFIG":
                 capture_configs.append(fields)
+            elif event == "WALL_CLOCK_ANCHOR":
+                wall_clock_anchors.append((seq, fields))
+            elif event == "BUFFER_CREATE":
+                handle = parse_int(fields.get("buffer"))
+                if handle is not None:
+                    buffer_metadata[handle] = fields
             elif event == "TARGET_DISCOVERY":
                 if fields.get("kind") == "compute" and parse_int(fields.get("shader")) == target_hash:
                     target_discoveries.append((seq, fields))
@@ -233,6 +243,7 @@ def main() -> int:
     target_dispatches = 0
     target_dispatch_groups: Counter[tuple[str, str]] = Counter()
     target_dispatch_ticks: Counter[int] = Counter()
+    target_dispatch_records: list[tuple[int, int, dict[str, str]]] = []
 
     with args.log.open("r", encoding="utf-8", errors="replace") as stream:
         for line in stream:
@@ -300,6 +311,7 @@ def main() -> int:
                     tick = parse_int(fields.get("expected_submit_tick"))
                     if tick is not None:
                         target_dispatch_ticks[tick] += 1
+                        target_dispatch_records.append((seq, tick, fields))
                     target_dispatch_groups[(fields.get("groups", "?"),
                                             fields.get("expected_submit_tick", "?"))] += 1
 
@@ -339,6 +351,8 @@ def main() -> int:
     # reset or transfer records that happened before the first matching descriptor.
     timeline.clear()
     expected_ticks.clear()
+    outbound_transfer_records: list[tuple[int, dict[str, str]]] = []
+    destination_handles: set[int] = set()
     timeline_event_counts: Counter[str] = Counter()
     resource_events = {
         "BUFFER_CREATE", "BUFFER_USAGE", "BUFFER_USAGE_RESET",
@@ -374,11 +388,146 @@ def main() -> int:
                 continue
             timeline.append((seq, event, body))
             timeline_event_counts[event] += 1
+            if event == "BUFFER_TRANSFER":
+                src = parse_int(fields.get("src"))
+                dst = parse_int(fields.get("dst"))
+                if src in target_handles and dst is not None:
+                    outbound_transfer_records.append((seq, fields))
+                    destination_handles.add(dst)
             for key in ("expected_submit_tick", "tick", "reset_tick",
                         "last_usage_tick", "previous_use_tick", "assigned_use_tick"):
                 tick = parse_int(fields.get(key))
                 if tick is not None and tick > 0:
                     expected_ticks.add(tick)
+
+    # Pass 2c: derive the next hop by finding every descriptor/bind/usage
+    # reference to buffers that received copies from the target buffer.
+    consumer_events = {"DESCRIPTOR_WRITE", "DESCRIPTOR_CLASS_BIND", "BUFFER_USAGE"}
+    destination_bdas: list[tuple[int, int, int]] = []
+    for handle in destination_handles:
+        metadata = buffer_metadata.get(handle, {})
+        base = safe_value(metadata, "device_address", "vk_device_address")
+        size = parse_int(metadata.get("size"))
+        if base is not None and base != 0 and size is not None and size > 0:
+            destination_bdas.append((base, size, handle))
+
+    consumer_groups: dict[tuple[str, str, str, str, str, str], dict[str, object]] = {}
+    consumer_unresolved_context = 0
+    with args.log.open("r", encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            parsed = audit_parts(line)
+            if parsed is None:
+                continue
+            seq, event, body = parsed
+            if event not in consumer_events:
+                continue
+            fields = parse_fields(body)
+            kind = fields.get("kind", event)
+            matched_handles: set[int] = set()
+            if event == "DESCRIPTOR_WRITE":
+                handle = safe_value(fields, "handle", "buffer")
+                view = parse_int(fields.get("view"))
+                address = parse_int(fields.get("address"))
+                if handle in destination_handles:
+                    matched_handles.add(handle)
+                if view in buffer_views and buffer_views[view] in destination_handles:
+                    matched_handles.add(buffer_views[view])
+                if address is not None:
+                    for base, size, dst_handle in destination_bdas:
+                        if base <= address < base + size:
+                            matched_handles.add(dst_handle)
+            else:
+                handle = safe_value(fields, "buffer", "handle")
+                if handle in destination_handles:
+                    matched_handles.add(handle)
+
+            if not matched_handles:
+                continue
+
+            shader = fields.get("target_hash", "unknown")
+            target_kind = fields.get("target_kind", "unknown")
+            stage = fields.get("stage", "unknown")
+            resource_kind = fields.get("resource_kind", kind)
+            access = fields.get("is_written", "not_recorded")
+            if shader == "unknown" or target_kind == "unknown":
+                consumer_unresolved_context += 1
+
+            for dst_handle in matched_handles:
+                key = (hex(dst_handle), target_kind, shader, stage, resource_kind, access)
+                entry = consumer_groups.setdefault(
+                    key, {"count": 0, "first_seq": seq, "last_seq": seq,
+                          "events": Counter(), "kinds": Counter(),
+                          "offsets": set(), "ranges": set()}
+                )
+                entry["count"] = int(entry["count"]) + 1
+                entry["last_seq"] = seq
+                entry["events"][event] += 1
+                entry["kinds"][kind] += 1
+                if fields.get("offset") is not None:
+                    entry["offsets"].add(fields["offset"])
+                if fields.get("range") is not None:
+                    entry["ranges"].add(fields["range"])
+
+    # Group target-buffer outbound copies by their scheduler tick, then pair
+    # the groups with target dispatches by global sequence rank (k-th to k-th).
+    outbound_by_tick: dict[int, dict[str, object]] = {}
+    for seq, fields in outbound_transfer_records:
+        tick = parse_int(fields.get("expected_submit_tick"))
+        if tick is None:
+            continue
+        group = outbound_by_tick.setdefault(
+            tick, {"count": 0, "sizes": [], "destinations": set(),
+                   "sequences": [], "records": []}
+        )
+        group["count"] = int(group["count"]) + 1
+        group["sizes"].append(parse_int(fields.get("size")) or 0)
+        group["destinations"].add(fields.get("dst", "?"))
+        group["sequences"].append(seq)
+        group["records"].append((seq, fields))
+
+    dispatch_tick_set = set(target_dispatch_ticks)
+    transfer_tick_set = set(outbound_by_tick)
+    common_transfer_dispatch_ticks = dispatch_tick_set & transfer_tick_set
+    ordered_copy_groups = sorted(
+        outbound_by_tick.items(), key=lambda item: min(item[1]["sequences"])
+    )
+    ordered_dispatches = sorted(target_dispatch_records, key=lambda item: item[0])
+    pair_count = min(len(ordered_dispatches), len(ordered_copy_groups))
+    pair_delta_histogram: Counter[int] = Counter()
+    pair_seq_distance_histogram: Counter[str] = Counter()
+    pair_rows: list[tuple[int, int, int, int, int]] = []
+    for index in range(pair_count):
+        dispatch_seq, dispatch_tick, _ = ordered_dispatches[index]
+        copy_tick, group = ordered_copy_groups[index]
+        first_copy_seq = min(group["sequences"])
+        delta = copy_tick - dispatch_tick
+        pair_delta_histogram[delta] += 1
+        pair_seq_distance_histogram[
+            "copy_after_dispatch" if first_copy_seq > dispatch_seq else "copy_before_or_at_dispatch"
+        ] += 1
+        pair_rows.append((index + 1, dispatch_seq, dispatch_tick, first_copy_seq, copy_tick))
+
+    exact_pairs = 0
+    contiguous_source_pairs = 0
+    contiguous_destination_pairs = 0
+    for _, group in ordered_copy_groups:
+        records = sorted(group["records"], key=lambda item: item[0])
+        if len(records) != 2:
+            continue
+        f0, f1 = records[0][1], records[1][1]
+        if sorted(group["sizes"]) != [2953216, 3600384]:
+            continue
+        exact_pairs += 1
+        src0 = parse_int(f0.get("src_offset"))
+        src1 = parse_int(f1.get("src_offset"))
+        dst0 = parse_int(f0.get("dst_offset"))
+        dst1 = parse_int(f1.get("dst_offset"))
+        size0 = parse_int(f0.get("size"))
+        size1 = parse_int(f1.get("size"))
+        if None not in (src0, src1, size0) and src1 == src0 + size0:
+            contiguous_source_pairs += 1
+        if None not in (dst0, dst1, size0) and dst1 == dst0 + size0:
+            contiguous_destination_pairs += 1
 
     # Pass 3: join only the submissions referenced by the target transfer timeline.
     if expected_ticks:
@@ -401,41 +550,6 @@ def main() -> int:
                         timeline.append((seq, event, body))
 
     timeline.sort(key=lambda item: item[0])
-
-    # Compare target compute dispatch ticks with the ticks of the paired
-    # two-segment copies sourced from the target Vulkan buffer.
-    outbound_by_tick: dict[int, dict[str, Any]] = {}
-    for seq, event, body in timeline:
-        if event != "BUFFER_TRANSFER":
-            continue
-        fields = parse_fields(body)
-        if parse_int(fields.get("src")) not in target_handles:
-            continue
-        tick = parse_int(fields.get("expected_submit_tick"))
-        if tick is None:
-            continue
-        group = outbound_by_tick.setdefault(
-            tick, {"count": 0, "sizes": [], "destinations": set(), "sequences": []}
-        )
-        group["count"] += 1
-        group["sizes"].append(parse_int(fields.get("size")) or 0)
-        group["destinations"].add(fields.get("dst", "?"))
-        group["sequences"].append(seq)
-
-    dispatch_tick_set = set(target_dispatch_ticks)
-    transfer_tick_set = set(outbound_by_tick)
-    common_transfer_dispatch_ticks = dispatch_tick_set & transfer_tick_set
-    paired_copy_groups = {
-        tick: group for tick, group in outbound_by_tick.items()
-        if group["count"] == 2 and len(group["destinations"]) == 1
-    }
-    exact_two_chunk_groups = {
-        tick: group for tick, group in paired_copy_groups.items()
-        if sorted(group["sizes"]) == [2953216, 3600384]
-    }
-    destination_pair_counts: Counter[str] = Counter()
-    for group in exact_two_chunk_groups.values():
-        destination_pair_counts[next(iter(group["destinations"]))] += 1
 
     target_hash_text = f"0x{target_hash:x}"
     target_addr_text = f"0x{target_gpu_addr:x}"
@@ -487,15 +601,43 @@ def main() -> int:
     print(f"Target compute dispatches: {target_dispatches}")
     print(f"Target compute dispatch ticks: {len(dispatch_tick_set)}")
     print(f"Target-buffer outbound transfer ticks: {len(transfer_tick_set)}")
-    print(f"Ticks shared by compute dispatch and outbound transfer: {len(common_transfer_dispatch_ticks)}")
-    print(f"Dispatch ticks without a target-buffer outbound transfer: {len(dispatch_tick_set - transfer_tick_set)}")
-    print(f"Outbound transfer ticks without a target compute dispatch: {len(transfer_tick_set - dispatch_tick_set)}")
-    print(f"Ticks with exactly two outbound chunks to one destination: {len(paired_copy_groups)}")
-    print(f"Ticks with the exact 3600384 + 2953216 byte pair: {len(exact_two_chunk_groups)}")
-    print("Two-chunk transfer groups by destination VkBuffer:")
-    for destination, count in sorted(destination_pair_counts.items()):
-        print(f"  destination={destination} tick_groups={count}")
+    print(f"Exact same-tick intersections (not sequence pairing): {len(common_transfer_dispatch_ticks)}")
+    print(f"Dispatches paired by sequence rank: {pair_count}")
+    print("K-th dispatch to k-th outbound copy-group tick delta histogram (copy_tick - dispatch_tick):")
+    for delta, count in sorted(pair_delta_histogram.items()):
+        print(f"  delta={delta}: {count}")
+    print("K-th pair sequence ordering:")
+    for ordering, count in sorted(pair_seq_distance_histogram.items()):
+        print(f"  {ordering}: {count}")
+    print(f"Two-chunk groups with exact 3600384 + 2953216 byte sizes: {exact_pairs}")
+    print(f"Exact groups with contiguous source offsets: {contiguous_source_pairs}")
+    print(f"Exact groups with contiguous destination offsets: {contiguous_destination_pairs}")
+    print("First 20 sequence-rank dispatch/copy pairs:")
+    for rank, dispatch_seq, dispatch_tick, copy_seq, copy_tick in pair_rows[:20]:
+        print(f"  pair={rank} dispatch_seq={dispatch_seq} dispatch_tick={dispatch_tick} "
+              f"copy_seq={copy_seq} copy_tick={copy_tick} delta={copy_tick - dispatch_tick}")
     print(f"Target buffer timeline records: {len(timeline)}")
+    print(f"Outbound destination VkBuffers: {len(destination_handles)}")
+    for dst_handle in sorted(destination_handles):
+        meta = buffer_metadata.get(dst_handle, {})
+        print(f"  destination={hex(dst_handle)} size={meta.get('size','unknown')} "
+              f"backing_cpu_addr={meta.get('backing_cpu_addr','unknown')}")
+    print(f"Destination consumer records matched: {sum(int(v['count']) for v in consumer_groups.values())}")
+    print(f"Destination consumer records without shader context: {consumer_unresolved_context}")
+    print("Destination buffer shader consumers (descriptor/bind/usage records):")
+    for key, value in sorted(consumer_groups.items()):
+        dst, target_kind, shader, stage, resource_kind, access = key
+        events = ",".join(f"{name}:{count}" for name, count in sorted(value["events"].items()))
+        kinds = ",".join(f"{name}:{count}" for name, count in sorted(value["kinds"].items()))
+        print(f"  destination={dst} target_kind={target_kind} shader={shader} stage={stage} "
+              f"resource_kind={resource_kind} is_written={access} count={value['count']} "
+              f"first_seq={value['first_seq']} last_seq={value['last_seq']} "
+              f"events={events} kinds={kinds}")
+    if wall_clock_anchors:
+        print(f"Wall-clock anchors: {len(wall_clock_anchors)} (100 ms cadence)")
+        for seq, fields in wall_clock_anchors:
+            print(f"  seq={seq} steady_us={fields.get('steady_us','?')} "
+                  f"wall_epoch_us={fields.get('wall_epoch_us','?')}")
     print("Target timeline event counts:")
     for name, count in sorted(timeline_event_counts.items()):
         print(f"  {name}={count}")
