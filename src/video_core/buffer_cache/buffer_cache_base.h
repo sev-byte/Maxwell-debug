@@ -494,7 +494,7 @@ private:
 
     void UpdateVertexBufferSlot(u32 index, const Binding& binding);
 
-    void ClearDownload(DAddr base_addr, u64 size);
+    void ClearDownload(DAddr base_addr, u64 size, const char* caller);
 
     void InlineMemoryImplementation(DAddr dest_address, size_t copy_size,
                                     std::span<const u8> inlined_buffer);
