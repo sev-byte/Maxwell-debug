@@ -84,6 +84,21 @@ Repeat the same comparison around chandelier arrival and departure. The exact wa
 
 Treat this as a traced resource, not yet as a proven lighting buffer. The shader's visual relevance remains a separate hypothesis to test by a controlled skip-dispatch intervention after its consumers are mapped.
 
+
+
+### 5. Follow the readback into guest memory and later shader consumers
+
+The staging VkBuffer is temporary and is normally read by the CPU, not bound as another shader resource. Therefore an empty shader-consumer list for the staging handle is not evidence that the data has no consumer.
+
+Build 2 also compares every `HOST_READBACK_WRITEBACK` guest CPU interval with subsequent descriptor and buffer-binding records:
+- `COMPUTE_BUFFER_BIND` uses `backing_cpu_addr` as the translated guest range start; its `offset` is only the offset inside the containing Vulkan buffer.
+- `DESCRIPTOR_WRITE`, `DESCRIPTOR_CLASS_BIND` and `BUFFER_USAGE` base-address records use the backing buffer base plus the recorded resource/descriptor offset.
+- `COMPUTE_MULTI_RANGE_SEGMENT` is matched using its backing buffer base and source segment offset.
+
+The report lists later shaders/stages and usage events whose guest-memory backing ranges overlap data written back from the target buffer. It does not infer read/write direction unless the corresponding record explicitly carries `is_written`.
+
+The staging lifecycle also checks that each CPU writeback segment overlaps a preceding copy into the same staging buffer and allocation, then compares the copy's expected submission tick with the GPU-completed tick observed at host writeback.
+
 ## Capture integrity
 
 Retain the full original `eden_gpu.log`, accompanying `eden_log.txt`, video and the final `PipelineAuditSummary`. Do not treat missing consumers or missing events as negative evidence if the summary reports dropped records, sequence gaps or an incomplete capture.
