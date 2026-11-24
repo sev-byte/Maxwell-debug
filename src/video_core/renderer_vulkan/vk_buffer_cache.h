@@ -7,6 +7,11 @@
 #pragma once
 
 #include <limits>
+#include <map>
+#include <mutex>
+#include <set>
+#include <string_view>
+#include <vector>
 
 #include <boost/container/small_vector.hpp>
 
@@ -131,14 +136,38 @@ public:
     [[nodiscard]] StagingBufferRef DownloadStagingBuffer(size_t size, bool deferred = false);
 
     void LogReadbackBatchBegin(const StagingBufferRef& staging, size_t total_size,
-                               size_t copy_count);
+                               size_t copy_count, u64 batch_id);
     void LogReadbackBarrier(const StagingBufferRef& staging, const char* edge,
                             size_t total_size, size_t copy_count);
     void LogReadbackCopy(const StagingBufferRef& staging, VkBuffer source_buffer,
                          DAddr source_cpu_addr, u64 source_offset, u64 staging_offset,
-                         u64 size);
+                         u64 size, u64 batch_id);
     void LogHostReadback(const StagingBufferRef& staging, DAddr guest_cpu_addr,
-                         u64 staging_offset, u64 size);
+                         u64 staging_offset, u64 size, u64 batch_id);
+
+    // Build 3A: target-only ownership and asynchronous readback lifecycle ledger.
+    u64 NextTargetReadbackBatchId();
+    u64 CurrentTargetWriteSequence() const;
+    void RegisterTargetReadback(u64 batch_id, DAddr address, u64 size,
+                                u64 schedule_write_sequence, u64 schedule_frame,
+                                u64 schedule_tick, size_t total_size, size_t copy_count);
+    void CancelTargetReadbacks(DAddr address, u64 size, const char* caller, u64 frame_tick);
+    void InspectTargetReadbackPop(u64 batch_id, DAddr start, DAddr end, s32 overlap_count,
+                                  u64 schedule_write_sequence, u64 schedule_frame,
+                                  u64 schedule_tick, u64 pop_frame);
+    void ConsumeTargetReadbackRegistration(u64 batch_id, DAddr address, u64 size);
+    void LogTargetReadbackBatchPop(u64 batch_id, u64 schedule_frame, u64 schedule_tick,
+                                   u64 pop_frame);
+    void RecordTargetGpuWrite(DAddr address, u64 size, u64 frame_tick);
+    void RecordTargetOwnershipClear(DAddr address, u64 size, const char* reason,
+                                    u64 batch_id, u64 schedule_write_sequence,
+                                    u64 frame_tick);
+    void RecordTargetOwnershipDecision(const char* operation, DAddr address, u64 size,
+                                       bool cache_gpu_owned, bool tracker_gpu_owned,
+                                       bool preflushable, u64 frame_tick);
+    void RecordTargetSynchronousDownload(const char* phase, DAddr address, u64 size,
+                                         u64 readback_id, u64 write_sequence,
+                                         u64 frame_tick);
 
     bool CanReorderUpload(const Buffer& buffer, std::span<const VideoCommon::BufferCopy> copies);
 
@@ -317,15 +346,35 @@ public:
     void LogComputeBufferBinding(const char* kind, size_t descriptor_index,
                                  GPUVAddr guest_gpu_addr, DAddr backing_cpu_addr,
                                  const Buffer& buffer, u32 offset, u32 size,
-                                 bool is_written) const noexcept {
+                                 bool is_written) noexcept {
         PipelineAudit::Log(
             "COMPUTE_BUFFER_BIND kind={} descriptor_index={} guest_gpu_addr={:#x} backing_cpu_addr={:#x} buffer={:#x} buffer_base_cpu_addr={:#x} vk_device_address={:#x} offset={} range={} is_written={}",
             kind, descriptor_index, guest_gpu_addr, backing_cpu_addr,
             PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(),
             buffer.DeviceAddress(), offset, size, is_written);
+        constexpr u64 target_shader_hash = 0x4577AED68DD75ECCULL;
+        if (std::string_view{kind} == "storage_buffer" &&
+            PipelineAudit::current_context.target_hash == target_shader_hash) {
+            RegisterTargetRange(backing_cpu_addr, size, guest_gpu_addr, buffer, offset,
+                                descriptor_index, is_written);
+        }
     }
 
 private:
+    struct TargetLedgerSegment {
+        DAddr end{};
+        u64 latest_write_sequence{};
+        u64 latest_write_frame{};
+        u64 latest_write_tick{};
+        bool gpu_owned{};
+        std::vector<u64> active_readback_batches;
+    };
+
+    void SplitTargetSegment(DAddr address);
+    u64 EnsureTargetRange(DAddr start, DAddr end);
+    void RegisterTargetRange(DAddr address, u64 size, GPUVAddr guest_gpu_address,
+                             const Buffer& buffer, u32 buffer_offset,
+                             size_t descriptor_index, bool is_written);
     void BindBuffer(const Buffer& buffer, u32 offset, u32 size) {
         const VkBuffer handle = buffer.Handle();
         if (handle == VK_NULL_HANDLE) {
@@ -360,6 +409,13 @@ private:
 
     bool limit_dynamic_storage_buffers = false;
     u32 max_dynamic_storage_buffers = (std::numeric_limits<u32>::max)();
+
+    // Segments cover only ranges discovered from the live 4577 storage-buffer binding.
+    mutable std::mutex target_ledger_mutex;
+    std::map<DAddr, TargetLedgerSegment> target_ledger;
+    std::set<u64> target_readback_batches;
+    u64 target_write_sequence{};
+    u64 next_target_readback_batch_id{1};
 };
 
 struct BufferCacheParams {
