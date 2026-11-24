@@ -728,14 +728,28 @@ void BufferCache<P>::CommitAsyncFlushesHigh() {
         async_buffers.emplace_back(std::optional<Async_Buffer>{});
         return;
     }
+    u64 batch_id = 0;
+    u64 schedule_write_sequence = 0;
+    u64 schedule_frame = frame_tick;
+    u64 schedule_tick = 0;
+    if constexpr (requires { runtime.NextTargetReadbackBatchId(); }) {
+        batch_id = runtime.NextTargetReadbackBatchId();
+    }
+    if constexpr (requires { runtime.CurrentTargetWriteSequence(); }) {
+        schedule_write_sequence = runtime.CurrentTargetWriteSequence();
+    }
+    if constexpr (requires { runtime.CurrentTick(); }) {
+        schedule_tick = runtime.CurrentTick();
+    }
     auto download_staging = runtime.DownloadStagingBuffer(total_size_bytes, true);
     if constexpr (requires {
                       runtime.LogReadbackBatchBegin(download_staging, total_size_bytes,
-                                                    downloads.size());
+                                                    downloads.size(), batch_id);
                   }) {
-        runtime.LogReadbackBatchBegin(download_staging, total_size_bytes, downloads.size());
+        runtime.LogReadbackBatchBegin(download_staging, total_size_bytes, downloads.size(),
+                                      batch_id);
     }
-    boost::container::small_vector<BufferCopy, 4> normalized_copies;
+    boost::container::small_vector<PendingDownload, 4> normalized_copies;
     runtime.PreCopyBarrier();
     if constexpr (requires {
                       runtime.LogReadbackBarrier(download_staging, "pre", total_size_bytes,
@@ -751,17 +765,33 @@ void BufferCache<P>::CommitAsyncFlushesHigh() {
         second_copy.src_offset = static_cast<size_t>(buffer.CpuAddr()) + copy.src_offset;
         const DAddr orig_device_addr = static_cast<DAddr>(second_copy.src_offset);
         async_downloads.Add(orig_device_addr, copy.size);
+        if constexpr (requires {
+                          runtime.RegisterTargetReadback(batch_id, orig_device_addr, copy.size,
+                                                         schedule_write_sequence, schedule_frame,
+                                                         schedule_tick, total_size_bytes,
+                                                         downloads.size());
+                      }) {
+            runtime.RegisterTargetReadback(batch_id, orig_device_addr, copy.size,
+                                           schedule_write_sequence, schedule_frame,
+                                           schedule_tick, total_size_bytes, downloads.size());
+        }
         buffer.MarkUsage(copy.src_offset, copy.size);
         runtime.CopyBuffer(download_staging.buffer, buffer, copies, false);
         if constexpr (requires {
                           runtime.LogReadbackCopy(download_staging, buffer.Handle(),
                                                   buffer.CpuAddr(), copy.src_offset,
-                                                  copy.dst_offset, copy.size);
+                                                  copy.dst_offset, copy.size, batch_id);
                       }) {
             runtime.LogReadbackCopy(download_staging, buffer.Handle(), buffer.CpuAddr(),
-                                    copy.src_offset, copy.dst_offset, copy.size);
+                                    copy.src_offset, copy.dst_offset, copy.size, batch_id);
         }
-        normalized_copies.push_back(second_copy);
+        normalized_copies.push_back(PendingDownload{
+            .copy = second_copy,
+            .batch_id = batch_id,
+            .schedule_frame = schedule_frame,
+            .schedule_tick = schedule_tick,
+            .schedule_write_sequence = schedule_write_sequence,
+        });
     }
     runtime.PostCopyBarrier();
     if constexpr (requires {
@@ -797,25 +827,62 @@ void BufferCache<P>::PopAsyncBuffers() {
     auto& async_buffer = async_buffers.front();
     u8* base = async_buffer->mapped_span.data();
     const size_t base_offset = async_buffer->offset;
-    for (const auto& copy : downloads) {
+    for (const auto& pending : downloads) {
+        const BufferCopy& copy = pending.copy;
         const DAddr device_addr = static_cast<DAddr>(copy.src_offset);
         const u64 dst_offset = copy.dst_offset - base_offset;
         const u8* read_mapped_memory = base + dst_offset;
-        async_downloads.ForEachInRange(device_addr, copy.size, [&](DAddr start, DAddr end, s32) {
-            if constexpr (requires {
-                              runtime.LogHostReadback(*async_buffer, start,
-                                                      dst_offset + (start - device_addr),
-                                                      u64{end - start});
-                          }) {
-                runtime.LogHostReadback(*async_buffer, start,
-                                        dst_offset + (start - device_addr), end - start);
-            }
-            device_memory.WriteBlockUnsafe(start, &read_mapped_memory[start - device_addr],
-                                           end - start);
-        });
+        async_downloads.ForEachInRange(
+            device_addr, copy.size, [&](DAddr start, DAddr end, s32 overlap_count) {
+                if constexpr (requires {
+                                  runtime.InspectTargetReadbackPop(
+                                      pending.batch_id, start, end, overlap_count,
+                                      pending.schedule_write_sequence, pending.schedule_frame,
+                                      pending.schedule_tick, frame_tick);
+                              }) {
+                    runtime.InspectTargetReadbackPop(
+                        pending.batch_id, start, end, overlap_count,
+                        pending.schedule_write_sequence, pending.schedule_frame,
+                        pending.schedule_tick, frame_tick);
+                }
+                if constexpr (requires {
+                                  runtime.LogHostReadback(*async_buffer, start,
+                                                          dst_offset + (start - device_addr),
+                                                          u64{end - start}, pending.batch_id);
+                              }) {
+                    runtime.LogHostReadback(*async_buffer, start,
+                                            dst_offset + (start - device_addr), end - start,
+                                            pending.batch_id);
+                }
+                device_memory.WriteBlockUnsafe(start, &read_mapped_memory[start - device_addr],
+                                               end - start);
+            });
+        if constexpr (requires {
+                          runtime.ConsumeTargetReadbackRegistration(pending.batch_id,
+                                                                   device_addr, copy.size);
+                      }) {
+            runtime.ConsumeTargetReadbackRegistration(pending.batch_id, device_addr, copy.size);
+        }
         async_downloads.Subtract(device_addr, copy.size, [&](DAddr start, DAddr end) {
+            if constexpr (requires {
+                              runtime.RecordTargetOwnershipClear(
+                                  start, end - start, "async_readback_completion",
+                                  pending.batch_id, pending.schedule_write_sequence, frame_tick);
+                          }) {
+                runtime.RecordTargetOwnershipClear(
+                    start, end - start, "async_readback_completion", pending.batch_id,
+                    pending.schedule_write_sequence, frame_tick);
+            }
             gpu_modified_ranges.Subtract(start, end - start);
         });
+        if constexpr (requires {
+                          runtime.LogTargetReadbackBatchPop(pending.batch_id,
+                                                            pending.schedule_frame,
+                                                            pending.schedule_tick, frame_tick);
+                      }) {
+            runtime.LogTargetReadbackBatchPop(pending.batch_id, pending.schedule_frame,
+                                              pending.schedule_tick, frame_tick);
+        }
     }
     async_buffers_death_ring.emplace_back(*async_buffer);
     async_buffers.pop_front();
