@@ -273,8 +273,12 @@ public:
             guest_base + guest_offset, backing_cpu_addr, backing_cpu_addr + segment_size,
             PipelineAudit::HandleValue(buffer.Handle()), buffer.CpuAddr(),
             buffer.DeviceAddress(), buffer_offset, segment_size, is_written);
-        RegisterTargetRange(guest_base + guest_offset, segment_size, guest_base + guest_offset,
-                            buffer, buffer_offset, segment_index, is_written);
+        try {
+            RegisterTargetRange(guest_base + guest_offset, segment_size, guest_base + guest_offset,
+                                buffer, buffer_offset, segment_index, is_written);
+        } catch (...) {
+            PipelineAudit::Log("TARGET_LEDGER_FAILURE operation=register_multi_range_segment");
+        }
     }
 
     void InvalidateMultiRange(u64 key) {
@@ -360,8 +364,12 @@ public:
         constexpr u64 target_shader_hash = 0x4577AED68DD75ECCULL;
         if (std::string_view{kind} == "storage_buffer" &&
             PipelineAudit::current_context.target_hash == target_shader_hash) {
-            RegisterTargetRange(backing_cpu_addr, size, guest_gpu_addr, buffer, offset,
-                                descriptor_index, is_written);
+            try {
+                RegisterTargetRange(backing_cpu_addr, size, guest_gpu_addr, buffer, offset,
+                                    descriptor_index, is_written);
+            } catch (...) {
+                PipelineAudit::Log("TARGET_LEDGER_FAILURE operation=register_storage_binding");
+            }
         }
     }
 
