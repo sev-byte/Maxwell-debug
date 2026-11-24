@@ -2169,7 +2169,15 @@ bool BufferCache<P>::InlineMemory(DAddr dest_address, size_t copy_size,
 template <class P>
 void BufferCache<P>::InlineMemoryImplementation(DAddr dest_address, size_t copy_size,
                                                 std::span<const u8> inlined_buffer) {
-    ClearDownload(dest_address, copy_size);
+    ClearDownload(dest_address, copy_size, "InlineMemoryImplementation");
+    if constexpr (requires {
+                      runtime.RecordTargetOwnershipClear(dest_address, copy_size,
+                                                          "InlineMemoryImplementation",
+                                                          u64{}, u64{}, frame_tick);
+                  }) {
+        runtime.RecordTargetOwnershipClear(dest_address, copy_size,
+                                           "InlineMemoryImplementation", 0, 0, frame_tick);
+    }
     gpu_modified_ranges.Subtract(dest_address, copy_size);
 
     BufferId buffer_id = FindBuffer(dest_address, static_cast<u32>(copy_size), false);
@@ -2202,6 +2210,23 @@ void BufferCache<P>::DownloadBufferMemory(Buffer& buffer, DAddr device_addr, u64
     boost::container::small_vector<BufferCopy, 1> copies;
     u64 total_size_bytes = 0;
     u64 largest_copy = 0;
+    u64 readback_id = 0;
+    u64 schedule_write_sequence = 0;
+    if constexpr (requires { runtime.NextTargetReadbackBatchId(); }) {
+        readback_id = runtime.NextTargetReadbackBatchId();
+    }
+    if constexpr (requires { runtime.CurrentTargetWriteSequence(); }) {
+        schedule_write_sequence = runtime.CurrentTargetWriteSequence();
+    }
+    if constexpr (requires {
+                      runtime.RecordTargetSynchronousDownload("request", device_addr, size,
+                                                               readback_id,
+                                                               schedule_write_sequence,
+                                                               frame_tick);
+                  }) {
+        runtime.RecordTargetSynchronousDownload("request", device_addr, size, readback_id,
+                                                schedule_write_sequence, frame_tick);
+    }
     memory_tracker.ForEachDownloadRangeAndClear(
         device_addr, size, [&](u64 device_addr_out, u64 range_size) {
             const DAddr buffer_addr = buffer.CpuAddr();
@@ -2218,10 +2243,37 @@ void BufferCache<P>::DownloadBufferMemory(Buffer& buffer, DAddr device_addr, u64
                 constexpr u64 mask = ~(align - 1ULL);
                 total_size_bytes += (new_size + align - 1) & mask;
                 largest_copy = (std::max)(largest_copy, new_size);
+                if constexpr (requires {
+                                  runtime.RecordTargetSynchronousDownload(
+                                      "copy_scheduled", start, new_size, readback_id,
+                                      schedule_write_sequence, frame_tick);
+                              }) {
+                    runtime.RecordTargetSynchronousDownload(
+                        "copy_scheduled", start, new_size, readback_id,
+                        schedule_write_sequence, frame_tick);
+                }
             };
 
             gpu_modified_ranges.ForEachInRange(device_addr_out, range_size, add_download);
-            ClearDownload(device_addr_out, range_size);
+            if constexpr (requires {
+                              runtime.RecordTargetSynchronousDownload(
+                                  "range_scheduled", device_addr_out, range_size, readback_id,
+                                  schedule_write_sequence, frame_tick);
+                          }) {
+                runtime.RecordTargetSynchronousDownload(
+                    "range_scheduled", device_addr_out, range_size, readback_id,
+                    schedule_write_sequence, frame_tick);
+            }
+            ClearDownload(device_addr_out, range_size, "DownloadBufferMemory");
+            if constexpr (requires {
+                              runtime.RecordTargetOwnershipClear(
+                                  device_addr_out, range_size, "synchronous_download_schedule",
+                                  readback_id, schedule_write_sequence, frame_tick);
+                          }) {
+                runtime.RecordTargetOwnershipClear(
+                    device_addr_out, range_size, "synchronous_download_schedule", readback_id,
+                    schedule_write_sequence, frame_tick);
+            }
             gpu_modified_ranges.Subtract(device_addr_out, range_size);
         });
     if (total_size_bytes == 0) {
@@ -2237,21 +2289,66 @@ void BufferCache<P>::DownloadBufferMemory(Buffer& buffer, DAddr device_addr, u64
             copy.dst_offset += download_staging.offset;
             buffer.MarkUsage(copy.src_offset, copy.size);
         }
+        if constexpr (requires {
+                          runtime.RecordTargetSynchronousDownload(
+                              "copy_submit", device_addr, size, readback_id,
+                              schedule_write_sequence, frame_tick);
+                      }) {
+            runtime.RecordTargetSynchronousDownload("copy_submit", device_addr, size,
+                                                    readback_id, schedule_write_sequence,
+                                                    frame_tick);
+        }
         runtime.CopyBuffer(download_staging.buffer, buffer, copies_span, true);
         runtime.Finish();
+        if constexpr (requires {
+                          runtime.RecordTargetSynchronousDownload(
+                              "gpu_complete", device_addr, size, readback_id,
+                              schedule_write_sequence, frame_tick);
+                      }) {
+            runtime.RecordTargetSynchronousDownload("gpu_complete", device_addr, size,
+                                                    readback_id, schedule_write_sequence,
+                                                    frame_tick);
+        }
         for (const BufferCopy& copy : copies) {
             const DAddr copy_device_addr = buffer.CpuAddr() + copy.src_offset;
             // Undo the modified offset
             const u64 dst_offset = copy.dst_offset - download_staging.offset;
             const u8* copy_mapped_memory = mapped_memory + dst_offset;
             device_memory.WriteBlockUnsafe(copy_device_addr, copy_mapped_memory, copy.size);
+            if constexpr (requires {
+                              runtime.RecordTargetSynchronousDownload(
+                                  "guest_writeback", copy_device_addr, copy.size, readback_id,
+                                  schedule_write_sequence, frame_tick);
+                          }) {
+                runtime.RecordTargetSynchronousDownload(
+                    "guest_writeback", copy_device_addr, copy.size, readback_id,
+                    schedule_write_sequence, frame_tick);
+            }
         }
     } else {
         const std::span<u8> immediate_buffer = ImmediateBuffer(largest_copy);
         for (const BufferCopy& copy : copies) {
             buffer.ImmediateDownload(copy.src_offset, immediate_buffer.subspan(0, copy.size));
             const DAddr copy_device_addr = buffer.CpuAddr() + copy.src_offset;
+            if constexpr (requires {
+                              runtime.RecordTargetSynchronousDownload(
+                                  "gpu_complete", copy_device_addr, copy.size, readback_id,
+                                  schedule_write_sequence, frame_tick);
+                          }) {
+                runtime.RecordTargetSynchronousDownload(
+                    "gpu_complete", copy_device_addr, copy.size, readback_id,
+                    schedule_write_sequence, frame_tick);
+            }
             device_memory.WriteBlockUnsafe(copy_device_addr, immediate_buffer.data(), copy.size);
+            if constexpr (requires {
+                              runtime.RecordTargetSynchronousDownload(
+                                  "guest_writeback", copy_device_addr, copy.size, readback_id,
+                                  schedule_write_sequence, frame_tick);
+                          }) {
+                runtime.RecordTargetSynchronousDownload(
+                    "guest_writeback", copy_device_addr, copy.size, readback_id,
+                    schedule_write_sequence, frame_tick);
+            }
         }
     }
 }
