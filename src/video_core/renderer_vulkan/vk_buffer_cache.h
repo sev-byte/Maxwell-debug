@@ -130,6 +130,16 @@ public:
 
     [[nodiscard]] StagingBufferRef DownloadStagingBuffer(size_t size, bool deferred = false);
 
+    void LogReadbackBatchBegin(const StagingBufferRef& staging, size_t total_size,
+                               size_t copy_count);
+    void LogReadbackBarrier(const StagingBufferRef& staging, const char* edge,
+                            size_t total_size, size_t copy_count);
+    void LogReadbackCopy(const StagingBufferRef& staging, VkBuffer source_buffer,
+                         DAddr source_cpu_addr, u64 source_offset, u64 staging_offset,
+                         u64 size);
+    void LogHostReadback(const StagingBufferRef& staging, DAddr guest_cpu_addr,
+                         u64 staging_offset, u64 size);
+
     bool CanReorderUpload(const Buffer& buffer, std::span<const VideoCommon::BufferCopy> copies);
 
     void FreeDeferredStagingBuffer(StagingBufferRef& ref);
