@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <limits>
 #include <map>
 #include <mutex>
@@ -409,6 +410,8 @@ private:
 
     bool limit_dynamic_storage_buffers = false;
     u32 max_dynamic_storage_buffers = (std::numeric_limits<u32>::max)();
+
+    std::atomic<bool> target_tracking_active{false};
 
     // Segments cover only ranges discovered from the live 4577 storage-buffer binding.
     mutable std::mutex target_ledger_mutex;
