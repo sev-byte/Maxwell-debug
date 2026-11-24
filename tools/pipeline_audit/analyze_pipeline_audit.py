@@ -232,6 +232,7 @@ def main() -> int:
     reuse_findings: list[tuple[int, str]] = []
     target_dispatches = 0
     target_dispatch_groups: Counter[tuple[str, str]] = Counter()
+    target_dispatch_ticks: Counter[int] = Counter()
 
     with args.log.open("r", encoding="utf-8", errors="replace") as stream:
         for line in stream:
@@ -296,6 +297,9 @@ def main() -> int:
                 shader = safe_value(fields, "shader_hash", "shader")
                 if shader == target_hash:
                     target_dispatches += 1
+                    tick = parse_int(fields.get("expected_submit_tick"))
+                    if tick is not None:
+                        target_dispatch_ticks[tick] += 1
                     target_dispatch_groups[(fields.get("groups", "?"),
                                             fields.get("expected_submit_tick", "?"))] += 1
 
@@ -397,6 +401,42 @@ def main() -> int:
                         timeline.append((seq, event, body))
 
     timeline.sort(key=lambda item: item[0])
+
+    # Compare target compute dispatch ticks with the ticks of the paired
+    # two-segment copies sourced from the target Vulkan buffer.
+    outbound_by_tick: dict[int, dict[str, Any]] = {}
+    for seq, event, body in timeline:
+        if event != "BUFFER_TRANSFER":
+            continue
+        fields = parse_fields(body)
+        if parse_int(fields.get("src")) not in target_handles:
+            continue
+        tick = parse_int(fields.get("expected_submit_tick"))
+        if tick is None:
+            continue
+        group = outbound_by_tick.setdefault(
+            tick, {"count": 0, "sizes": [], "destinations": set(), "sequences": []}
+        )
+        group["count"] += 1
+        group["sizes"].append(parse_int(fields.get("size")) or 0)
+        group["destinations"].add(fields.get("dst", "?"))
+        group["sequences"].append(seq)
+
+    dispatch_tick_set = set(target_dispatch_ticks)
+    transfer_tick_set = set(outbound_by_tick)
+    common_transfer_dispatch_ticks = dispatch_tick_set & transfer_tick_set
+    paired_copy_groups = {
+        tick: group for tick, group in outbound_by_tick.items()
+        if group["count"] == 2 and len(group["destinations"]) == 1
+    }
+    exact_two_chunk_groups = {
+        tick: group for tick, group in paired_copy_groups.items()
+        if sorted(group["sizes"]) == [2953216, 3600384]
+    }
+    destination_pair_counts: Counter[str] = Counter()
+    for group in exact_two_chunk_groups.values():
+        destination_pair_counts[next(iter(group["destinations"]))] += 1
+
     target_hash_text = f"0x{target_hash:x}"
     target_addr_text = f"0x{target_gpu_addr:x}"
 
@@ -445,6 +485,16 @@ def main() -> int:
     if len(target_descriptor_writes) > 500:
         print(f"  ... {len(target_descriptor_writes)-500} additional matching descriptor writes omitted")
     print(f"Target compute dispatches: {target_dispatches}")
+    print(f"Target compute dispatch ticks: {len(dispatch_tick_set)}")
+    print(f"Target-buffer outbound transfer ticks: {len(transfer_tick_set)}")
+    print(f"Ticks shared by compute dispatch and outbound transfer: {len(common_transfer_dispatch_ticks)}")
+    print(f"Dispatch ticks without a target-buffer outbound transfer: {len(dispatch_tick_set - transfer_tick_set)}")
+    print(f"Outbound transfer ticks without a target compute dispatch: {len(transfer_tick_set - dispatch_tick_set)}")
+    print(f"Ticks with exactly two outbound chunks to one destination: {len(paired_copy_groups)}")
+    print(f"Ticks with the exact 3600384 + 2953216 byte pair: {len(exact_two_chunk_groups)}")
+    print("Two-chunk transfer groups by destination VkBuffer:")
+    for destination, count in sorted(destination_pair_counts.items()):
+        print(f"  destination={destination} tick_groups={count}")
     print(f"Target buffer timeline records: {len(timeline)}")
     print("Target timeline event counts:")
     for name, count in sorted(timeline_event_counts.items()):
