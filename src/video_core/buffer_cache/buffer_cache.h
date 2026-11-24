@@ -897,6 +897,11 @@ bool BufferCache<P>::IsRegionGpuModified(DAddr addr, size_t size) {
 }
 
 template <class P>
+bool BufferCache<P>::IsMemoryTrackerRegionGpuModified(DAddr addr, size_t size) {
+    return memory_tracker.IsRegionGpuModified(addr, size);
+}
+
+template <class P>
 bool BufferCache<P>::IsRegionRegistered(DAddr addr, size_t size) {
     const DAddr end_addr = addr + size;
     const u64 page_end = Common::DivCeil(end_addr, CACHING_PAGESIZE);
