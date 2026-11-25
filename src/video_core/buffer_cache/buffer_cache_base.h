@@ -103,10 +103,16 @@ struct UniformBufferFloat3Override {
     u32 stage{};
     u32 index{};
     u32 offset{};
-    std::array<f32, 3> values{};
     s32 mode{};
+    u64 shader_hash{};
     bool write_values{true};
     bool enabled{};
+};
+
+struct UniformBufferFloat3OverrideShaderState {
+    u64 shader_hash{};
+    DAddr device_addr{};
+    std::array<f32, 3> baseline{};
 };
 
 struct UniformBufferFloat3OverrideFrameAudit {
@@ -135,6 +141,7 @@ struct UniformBufferFloat3OverrideAudit {
     std::array<f32, 3> batch_last{};
     std::array<f32, 3> batch_min{};
     std::array<f32, 3> batch_max{};
+    std::vector<u64> batch_fragment_shader_hashes;
 };
 
 static constexpr Binding NULL_BINDING{
@@ -207,6 +214,9 @@ public:
         uniform_buffer_binding_sizes{};
     UniformBufferFloat3Override uniform_buffer_float3_override{};
     UniformBufferFloat3OverrideAudit uniform_buffer_float3_override_audit{};
+    Common::unordered_map<u64, UniformBufferFloat3OverrideShaderState>
+        uniform_buffer_float3_override_shader_states;
+    s32 uniform_buffer_float3_override_shader_states_mode{};
 };
 
 template <class P>
@@ -288,8 +298,7 @@ public:
     void BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr, u32 size);
 
     void SetGraphicsUniformBufferFloat3Override(size_t stage, u32 index, u32 offset,
-                                                std::array<f32, 3> values, s32 mode,
-                                                bool write_values);
+                                                s32 mode, u64 shader_hash, bool write_values);
 
     void DisableGraphicsUniformBuffer(size_t stage, u32 index);
 

@@ -364,20 +364,19 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
 
     const s32 emissive_override =
         Settings::values.maxwell_emissive_multiplier_override.GetValue();
-    if (emissive_override >= 1 && emissive_override <= 4 &&
-        key.unique_hashes[0] == 0xa71664c0a2643d30ULL &&
-        key.unique_hashes[5] == 0x331f0de4dc79b7baULL) {
+    constexpr size_t FRAGMENT_STAGE = NUM_STAGES - 1;
+    constexpr u32 MATERIAL_CBUF_INDEX = 5;
+    constexpr u32 EMISSIVE_RGB_OFFSET = 80;
+    const s32 emissive_override =
+        Settings::values.maxwell_emissive_multiplier_override.GetValue();
+    const bool fragment_uses_material_cbuf =
+        (stage_infos[FRAGMENT_STAGE].constant_buffer_mask & (1U << MATERIAL_CBUF_INDEX)) != 0;
+    if (emissive_override >= 1 && emissive_override <= 4 && fragment_uses_material_cbuf) {
         const bool passthrough = emissive_override == 1;
-        const f32 multiplier = emissive_override <= 2 ? 0.0f
-                              : emissive_override == 3 ? 1.0f
-                                                       : 2.0f;
-        const std::array<f32, 3> emissive_values{
-            multiplier,
-            0.80393225f * multiplier,
-            0.46274948f * multiplier,
-        };
-        buffer_cache.SetGraphicsUniformBufferFloat3Override(4, 5, 80, emissive_values,
-                                                            emissive_override, !passthrough);
+        // No shader-hash or authored-colour filter: hit every fragment pipeline using CB5.
+        buffer_cache.SetGraphicsUniformBufferFloat3Override(
+            FRAGMENT_STAGE, MATERIAL_CBUF_INDEX, EMISSIVE_RGB_OFFSET, emissive_override,
+            key.unique_hashes[FRAGMENT_STAGE], !passthrough);
     }
 
     const auto& regs{maxwell3d->regs};
