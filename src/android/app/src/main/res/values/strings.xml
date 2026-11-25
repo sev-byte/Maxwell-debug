@@ -680,8 +680,9 @@
     <string name="gpu_log_ring_buffer_size_hint">64 to 4096 entries</string>
     <string name="maxwell_emissive_test_header">Emissive Animation Test</string>
     <string name="maxwell_emissive_multiplier_override">Chandelier emissive multiplier</string>
-    <string name="maxwell_emissive_multiplier_override_description">Freeze the animated emissive multiplier only on the chandelier's main shader pair and only when CB5 contains the matching warm candle colour. Off preserves the original game animation. This test does not enable GPU logging.</string>
+    <string name="maxwell_emissive_multiplier_override_description">Freeze only the exact chandelier shader pair, and only when live CB5 RGB ratios match the authored candle colour within 0.000001. The 0.0 level removes emissive output without changing the colour gate. Off preserves the game animation. A low-rate 300-frame audit records overridden draw counts and verifies the mapped CB5 values; GPU call logging is not required.</string>
     <string name="maxwell_emissive_multiplier_off">Off — use game animation</string>
+    <string name="maxwell_emissive_multiplier_0">Freeze at 0.0 — emissive off</string>
     <string name="maxwell_emissive_multiplier_1">Freeze at 1.0</string>
     <string name="maxwell_emissive_multiplier_2">Freeze at 2.0</string>
 

@@ -1553,10 +1553,11 @@ class SettingsFragmentPresenter(
                         descriptionId = R.string.maxwell_emissive_multiplier_override_description,
                         choices = arrayOf(
                             context.getString(R.string.maxwell_emissive_multiplier_off),
+                            context.getString(R.string.maxwell_emissive_multiplier_0),
                             context.getString(R.string.maxwell_emissive_multiplier_1),
                             context.getString(R.string.maxwell_emissive_multiplier_2)
                         ),
-                        values = arrayOf(0, 1, 2)
+                        values = arrayOf(0, 1, 2, 3)
                     )
                 )
 

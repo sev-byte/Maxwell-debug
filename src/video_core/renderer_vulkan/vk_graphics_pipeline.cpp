@@ -364,16 +364,19 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
 
     const s32 emissive_override =
         Settings::values.maxwell_emissive_multiplier_override.GetValue();
-    if ((emissive_override == 1 || emissive_override == 2) &&
+    if (emissive_override >= 1 && emissive_override <= 3 &&
         key.unique_hashes[0] == 0xa71664c0a2643d30ULL &&
         key.unique_hashes[5] == 0x331f0de4dc79b7baULL) {
-        const f32 multiplier = emissive_override == 1 ? 1.0f : 2.0f;
+        const f32 multiplier = emissive_override == 1 ? 0.0f
+                              : emissive_override == 2 ? 1.0f
+                                                       : 2.0f;
         const std::array<f32, 3> emissive_values{
             multiplier,
             0.80393225f * multiplier,
             0.46274948f * multiplier,
         };
-        buffer_cache.SetGraphicsUniformBufferFloat3Override(4, 5, 80, emissive_values);
+        buffer_cache.SetGraphicsUniformBufferFloat3Override(4, 5, 80, emissive_values,
+                                                            emissive_override);
     }
 
     const auto& regs{maxwell3d->regs};

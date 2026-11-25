@@ -102,7 +102,36 @@ struct TextureBufferBinding : Binding {
 struct UniformBufferFloat3Override {
     u32 offset{};
     std::array<f32, 3> values{};
+    s32 mode{};
     bool enabled{};
+};
+
+struct UniformBufferFloat3OverrideFrameAudit {
+    u32 draws{};
+    u32 readbacks{};
+    u32 mismatches{};
+};
+
+struct UniformBufferFloat3OverrideAudit {
+    static constexpr u32 FRAME_BATCH_SIZE = 300;
+
+    std::array<UniformBufferFloat3OverrideFrameAudit, FRAME_BATCH_SIZE> frames{};
+    s32 mode{};
+    u32 frames_captured{};
+    u32 draws_this_frame{};
+    u32 last_frame_draws{};
+    u32 readbacks_this_frame{};
+    u32 mismatches_this_frame{};
+    u32 batch_draws{};
+    u32 batch_zero_draw_frames{};
+    u32 batch_frames_with_readback{};
+    u32 batch_readbacks{};
+    u32 batch_mismatches{};
+    bool batch_has_readback{};
+    std::array<f32, 3> batch_first{};
+    std::array<f32, 3> batch_last{};
+    std::array<f32, 3> batch_min{};
+    std::array<f32, 3> batch_max{};
 };
 
 static constexpr Binding NULL_BINDING{
@@ -175,6 +204,7 @@ public:
         uniform_buffer_binding_sizes{};
     std::array<std::array<UniformBufferFloat3Override, NUM_GRAPHICS_UNIFORM_BUFFERS>, NUM_STAGES>
         uniform_buffer_float3_overrides{};
+    UniformBufferFloat3OverrideAudit uniform_buffer_float3_override_audit{};
 };
 
 template <class P>
@@ -256,7 +286,7 @@ public:
     void BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr, u32 size);
 
     void SetGraphicsUniformBufferFloat3Override(size_t stage, u32 index, u32 offset,
-                                                std::array<f32, 3> values);
+                                                std::array<f32, 3> values, s32 mode);
 
     void DisableGraphicsUniformBuffer(size_t stage, u32 index);
 
