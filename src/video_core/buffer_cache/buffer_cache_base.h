@@ -99,6 +99,12 @@ struct TextureBufferBinding : Binding {
     PixelFormat format;
 };
 
+struct UniformBufferFloat3Override {
+    u32 offset{};
+    std::array<f32, 3> values{};
+    bool enabled{};
+};
+
 static constexpr Binding NULL_BINDING{
     .device_addr = 0,
     .size = 0,
@@ -167,6 +173,8 @@ public:
     std::array<u32, NUM_STAGES> fast_bound_uniform_buffers{};
     std::array<std::array<u32, NUM_GRAPHICS_UNIFORM_BUFFERS>, NUM_STAGES>
         uniform_buffer_binding_sizes{};
+    std::array<std::array<UniformBufferFloat3Override, NUM_GRAPHICS_UNIFORM_BUFFERS>, NUM_STAGES>
+        uniform_buffer_float3_overrides{};
 };
 
 template <class P>
@@ -246,6 +254,9 @@ public:
     bool InlineMemory(DAddr dest_address, size_t copy_size, std::span<const u8> inlined_buffer);
 
     void BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr, u32 size);
+
+    void SetGraphicsUniformBufferFloat3Override(size_t stage, u32 index, u32 offset,
+                                                std::array<f32, 3> values);
 
     void DisableGraphicsUniformBuffer(size_t stage, u32 index);
 

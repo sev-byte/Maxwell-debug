@@ -7,6 +7,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstring>
 #include <memory>
 #include <numeric>
 
@@ -406,8 +407,22 @@ void BufferCache<P>::SetUniformBuffersState(const std::array<u32, NUM_STAGES>& m
             channel_state->uniform_buffer_binding_sizes.fill({});
         }
     }
+    channel_state->uniform_buffer_float3_overrides = {};
     channel_state->enabled_uniform_buffer_masks = mask;
     channel_state->uniform_buffer_sizes = sizes;
+}
+
+template <class P>
+void BufferCache<P>::SetGraphicsUniformBufferFloat3Override(size_t stage, u32 index, u32 offset,
+                                                              std::array<f32, 3> values) {
+    if (stage >= NUM_STAGES || index >= NUM_GRAPHICS_UNIFORM_BUFFERS) {
+        return;
+    }
+    channel_state->uniform_buffer_float3_overrides[stage][index] = {
+        .offset = offset,
+        .values = values,
+        .enabled = true,
+    };
 }
 
 template <class P>
@@ -933,6 +948,10 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
     const Binding& binding = channel_state->uniform_buffers[stage][index];
     const DAddr device_addr = binding.device_addr;
     const u32 size = (std::min)(binding.size, (*channel_state->uniform_buffer_sizes)[stage][index]);
+    const auto& float3_override = channel_state->uniform_buffer_float3_overrides[stage][index];
+    const bool apply_float3_override =
+        float3_override.enabled && float3_override.offset <= size &&
+        sizeof(float3_override.values) <= size - float3_override.offset;
     Buffer& buffer = slot_buffers[binding.buffer_id];
     TouchBuffer(buffer, binding.buffer_id);
     const bool has_host_buffer = binding.buffer_id != NULL_BUFFER_ID;
@@ -948,7 +967,7 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
             return alignment > 1 && (offset % alignment) != 0;
         }
     }();
-    const bool use_fast_buffer = needs_alignment_stream
+    const bool use_fast_buffer = apply_float3_override || needs_alignment_stream
         || (has_host_buffer && size <= channel_state->uniform_buffer_skip_cache_size
             && !memory_tracker.IsRegionGpuModified(device_addr, size));
     if (use_fast_buffer) {
@@ -974,6 +993,10 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
         // Stream buffer path to avoid stalling on non-Nvidia drivers or Vulkan
         const std::span<u8> span = runtime.BindMappedUniformBuffer(stage, binding_index, size);
         device_memory.ReadBlockUnsafe(device_addr, span.data(), size);
+        if (apply_float3_override) {
+            std::memcpy(span.data() + float3_override.offset, float3_override.values.data(),
+                        sizeof(float3_override.values));
+        }
         return;
     }
     // Classic cached path

@@ -362,6 +362,19 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
 
     buffer_cache.SetUniformBuffersState(enabled_uniform_buffer_masks, &uniform_buffer_sizes);
 
+    const s32 emissive_override =
+        Settings::values.maxwell_emissive_multiplier_override.GetValue();
+    if ((emissive_override == 1 || emissive_override == 2) &&
+        key.unique_hashes[5] == 0x331f0de4dc79b7baULL) {
+        const f32 multiplier = emissive_override == 1 ? 1.0f : 2.0f;
+        const std::array<f32, 3> emissive_values{
+            multiplier,
+            0.80393225f * multiplier,
+            0.46274948f * multiplier,
+        };
+        buffer_cache.SetGraphicsUniformBufferFloat3Override(4, 5, 80, emissive_values);
+    }
+
     const auto& regs{maxwell3d->regs};
     const bool via_header_index{regs.sampler_binding == Maxwell::SamplerBinding::ViaHeaderBinding};
     const auto config_stage{[&](size_t stage) LAMBDA_FORCEINLINE {

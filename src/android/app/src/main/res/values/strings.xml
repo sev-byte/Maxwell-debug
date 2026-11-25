@@ -678,6 +678,12 @@
     <string name="gpu_log_ring_buffer_size">Ring Buffer Size</string>
     <string name="gpu_log_ring_buffer_size_description">Number of recent Vulkan calls to track (default: 512)</string>
     <string name="gpu_log_ring_buffer_size_hint">64 to 4096 entries</string>
+    <string name="maxwell_emissive_test_header">Emissive Animation Test</string>
+    <string name="maxwell_emissive_multiplier_override">Chandelier emissive multiplier</string>
+    <string name="maxwell_emissive_multiplier_override_description">Freeze the animated emissive multiplier for the main chandelier fragment shader only. Off preserves the original game animation. This test does not enable GPU logging.</string>
+    <string name="maxwell_emissive_multiplier_off">Off — use game animation</string>
+    <string name="maxwell_emissive_multiplier_1">Freeze at 1.0</string>
+    <string name="maxwell_emissive_multiplier_2">Freeze at 2.0</string>
 
     <string name="general">General</string>
 

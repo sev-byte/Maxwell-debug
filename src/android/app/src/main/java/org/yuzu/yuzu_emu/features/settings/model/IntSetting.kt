@@ -73,6 +73,7 @@ enum class IntSetting(override val key: String) : AbstractIntSetting {
     INPUT_OVERLAY_AUTO_HIDE("input_overlay_auto_hide"),
     OVERLAY_GRID_SIZE("overlay_grid_size"),
     GPU_LOG_RING_BUFFER_SIZE("gpu_log_ring_buffer_size"),
+    MAXWELL_EMISSIVE_MULTIPLIER_OVERRIDE("maxwell_emissive_multiplier_override"),
     ANDROID_PIPELINE_WORKERS("pipeline_worker_count")
     ;
 

@@ -1545,6 +1545,21 @@ class SettingsFragmentPresenter(
             add(StringSetting.PROGRAM_ARGS.key)
 
             if (!NativeConfig.isPerGameConfigLoaded()) {
+                add(HeaderSetting(R.string.maxwell_emissive_test_header))
+                add(
+                    IntSingleChoiceSetting(
+                        IntSetting.MAXWELL_EMISSIVE_MULTIPLIER_OVERRIDE,
+                        titleId = R.string.maxwell_emissive_multiplier_override,
+                        descriptionId = R.string.maxwell_emissive_multiplier_override_description,
+                        choices = arrayOf(
+                            context.getString(R.string.maxwell_emissive_multiplier_off),
+                            context.getString(R.string.maxwell_emissive_multiplier_1),
+                            context.getString(R.string.maxwell_emissive_multiplier_2)
+                        ),
+                        values = arrayOf(0, 1, 2)
+                    )
+                )
+
                 add(HeaderSetting(R.string.gpu_logging_header))
                 add(BooleanSetting.MAXWELL_ISSUE_TRACKING.key)
                 add(ByteSetting.GPU_LOG_LEVEL.key)
