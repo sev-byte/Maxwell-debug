@@ -362,9 +362,8 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
 
     buffer_cache.SetUniformBuffersState(enabled_uniform_buffer_masks, &uniform_buffer_sizes);
 
-    const s32 emissive_override =
-        Settings::values.maxwell_emissive_multiplier_override.GetValue();
     constexpr size_t FRAGMENT_STAGE = NUM_STAGES - 1;
+    constexpr size_t FRAGMENT_SHADER_HASH_INDEX = 5;
     constexpr u32 MATERIAL_CBUF_INDEX = 5;
     constexpr u32 EMISSIVE_RGB_OFFSET = 80;
     const s32 emissive_override =
@@ -376,7 +375,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
         // No shader-hash or authored-colour filter: hit every fragment pipeline using CB5.
         buffer_cache.SetGraphicsUniformBufferFloat3Override(
             FRAGMENT_STAGE, MATERIAL_CBUF_INDEX, EMISSIVE_RGB_OFFSET, emissive_override,
-            key.unique_hashes[FRAGMENT_STAGE], !passthrough);
+            key.unique_hashes[FRAGMENT_SHADER_HASH_INDEX], !passthrough);
     }
 
     const auto& regs{maxwell3d->regs};
