@@ -100,6 +100,8 @@ struct TextureBufferBinding : Binding {
 };
 
 struct UniformBufferFloat3Override {
+    u32 stage{};
+    u32 index{};
     u32 offset{};
     std::array<f32, 3> values{};
     s32 mode{};
@@ -202,8 +204,7 @@ public:
     std::array<u32, NUM_STAGES> fast_bound_uniform_buffers{};
     std::array<std::array<u32, NUM_GRAPHICS_UNIFORM_BUFFERS>, NUM_STAGES>
         uniform_buffer_binding_sizes{};
-    std::array<std::array<UniformBufferFloat3Override, NUM_GRAPHICS_UNIFORM_BUFFERS>, NUM_STAGES>
-        uniform_buffer_float3_overrides{};
+    UniformBufferFloat3Override uniform_buffer_float3_override{};
     UniformBufferFloat3OverrideAudit uniform_buffer_float3_override_audit{};
 };
 

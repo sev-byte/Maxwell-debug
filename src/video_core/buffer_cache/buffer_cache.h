@@ -85,12 +85,14 @@ void BufferCache<P>::TickFrame() {
     const s32 selected_override_mode =
         Settings::values.maxwell_emissive_multiplier_override.GetValue();
     if (selected_override_mode == 0) {
-        if (override_audit.mode != 0 && override_audit.last_frame_draws != 0) {
-            LOG_INFO(HW_GPU,
-                     "[MaxwellEmissive] override disabled after {} overridden draws in the preceding frame",
-                     override_audit.last_frame_draws);
+        if (override_audit.mode != 0) {
+            if (override_audit.last_frame_draws != 0) {
+                LOG_INFO(HW_GPU,
+                         "[MaxwellEmissive] override disabled after {} overridden draws in the preceding frame",
+                         override_audit.last_frame_draws);
+            }
+            override_audit = {};
         }
-        override_audit = {};
     } else {
         if (override_audit.mode != selected_override_mode) {
             override_audit = {};
@@ -493,7 +495,7 @@ void BufferCache<P>::SetUniformBuffersState(const std::array<u32, NUM_STAGES>& m
             channel_state->uniform_buffer_binding_sizes.fill({});
         }
     }
-    channel_state->uniform_buffer_float3_overrides = {};
+    channel_state->uniform_buffer_float3_override.enabled = false;
     channel_state->enabled_uniform_buffer_masks = mask;
     channel_state->uniform_buffer_sizes = sizes;
 }
@@ -504,7 +506,9 @@ void BufferCache<P>::SetGraphicsUniformBufferFloat3Override(size_t stage, u32 in
     if (stage >= NUM_STAGES || index >= NUM_GRAPHICS_UNIFORM_BUFFERS) {
         return;
     }
-    channel_state->uniform_buffer_float3_overrides[stage][index] = {
+    channel_state->uniform_buffer_float3_override = {
+        .stage = static_cast<u32>(stage),
+        .index = index,
         .offset = offset,
         .values = values,
         .mode = mode,
@@ -1035,7 +1039,10 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
     const Binding& binding = channel_state->uniform_buffers[stage][index];
     const DAddr device_addr = binding.device_addr;
     const u32 size = (std::min)(binding.size, (*channel_state->uniform_buffer_sizes)[stage][index]);
-    const auto& float3_override = channel_state->uniform_buffer_float3_overrides[stage][index];
+    const auto& float3_override = channel_state->uniform_buffer_float3_override;
+    const bool is_override_target = float3_override.enabled &&
+                                    float3_override.stage == stage &&
+                                    float3_override.index == index;
     Buffer& buffer = slot_buffers[binding.buffer_id];
     TouchBuffer(buffer, binding.buffer_id);
     const bool has_host_buffer = binding.buffer_id != NULL_BUFFER_ID;
@@ -1044,7 +1051,7 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
     bool override_sync_attempted = false;
     bool override_sync_hit = false;
     bool apply_float3_override =
-        float3_override.enabled && float3_override.offset <= size &&
+        is_override_target && float3_override.offset <= size &&
         sizeof(float3_override.values) <= size - float3_override.offset;
     const auto is_chandelier_candle = [](const std::array<f32, 3>& color) {
         if (!(color[0] > 0.0f)) {
@@ -1101,7 +1108,7 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
         // Stream buffer path to avoid stalling on non-Nvidia drivers or Vulkan
         const std::span<u8> span = runtime.BindMappedUniformBuffer(stage, binding_index, size);
         device_memory.ReadBlockUnsafe(device_addr, span.data(), size);
-            if (apply_float3_override) {
+        if (apply_float3_override) {
             std::array<f32, 3> live_emissive{};
             std::memcpy(live_emissive.data(), span.data() + float3_override.offset,
                         sizeof(live_emissive));
