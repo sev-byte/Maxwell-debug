@@ -105,6 +105,7 @@ struct UniformBufferFloat3Override {
     u32 offset{};
     std::array<f32, 3> values{};
     s32 mode{};
+    bool write_values{true};
     bool enabled{};
 };
 
@@ -287,7 +288,8 @@ public:
     void BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr, u32 size);
 
     void SetGraphicsUniformBufferFloat3Override(size_t stage, u32 index, u32 offset,
-                                                std::array<f32, 3> values, s32 mode);
+                                                std::array<f32, 3> values, s32 mode,
+                                                bool write_values);
 
     void DisableGraphicsUniformBuffer(size_t stage, u32 index);
 

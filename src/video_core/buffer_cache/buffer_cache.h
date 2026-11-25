@@ -102,7 +102,7 @@ void BufferCache<P>::TickFrame() {
         const u32 frame_draws = override_audit.draws_this_frame;
         if (frame_draws == 0 && override_audit.last_frame_draws != 0) {
             LOG_WARNING(HW_GPU,
-                        "[MaxwellEmissive] override draw count dropped to zero at frame {} (previous frame: {} draws, mode: {})",
+                        "[MaxwellEmissive] matched stream-path draw count dropped to zero at frame {} (previous frame: {} draws, mode: {})",
                         frame_tick, override_audit.last_frame_draws, override_audit.mode);
         }
 
@@ -133,16 +133,27 @@ void BufferCache<P>::TickFrame() {
                 per_frame_draws += std::to_string(override_audit.frames[i].draws);
             }
 
+#ifdef __ANDROID__
+            const bool optimized_vertex_buffers =
+                Settings::values.use_optimized_vertex_buffers.GetValue();
+#else
+            constexpr bool optimized_vertex_buffers = false;
+#endif
             LOG_INFO(HW_GPU,
-                     "[MaxwellEmissive] 300-frame audit mode={} total_draws={} zero_draw_frames={} frames_with_readback={} post_override_readbacks={} mismatches={} per_frame_draws=[{}]",
-                     override_audit.mode, override_audit.batch_draws,
+                     "[MaxwellEmissive] 300-frame audit mode={} use_optimized_vertex_buffers={} matched_draws={} zero_draw_frames={} frames_with_readback={} post_stream_readbacks={} mismatches={} per_frame_draws=[{}]",
+                     override_audit.mode, optimized_vertex_buffers, override_audit.batch_draws,
                      override_audit.batch_zero_draw_frames,
                      override_audit.batch_frames_with_readback,
                      override_audit.batch_readbacks, override_audit.batch_mismatches,
                      per_frame_draws);
+            if (override_audit.batch_zero_draw_frames != 0) {
+                LOG_WARNING(HW_GPU,
+                            "[MaxwellEmissive] INVALID measurement window: {} of 300 frames had zero matching stream-path draws (mode: {})",
+                            override_audit.batch_zero_draw_frames, override_audit.mode);
+            }
             if (override_audit.batch_has_readback) {
                 LOG_INFO(HW_GPU,
-                         "[MaxwellEmissive] post-override mapped CB5 triple across 300 frames: first=({:.8f},{:.8f},{:.8f}) last=({:.8f},{:.8f},{:.8f}) min=({:.8f},{:.8f},{:.8f}) max=({:.8f},{:.8f},{:.8f})",
+                         "[MaxwellEmissive] post-stream mapped CB5 triple across 300 frames: first=({:.8f},{:.8f},{:.8f}) last=({:.8f},{:.8f},{:.8f}) min=({:.8f},{:.8f},{:.8f}) max=({:.8f},{:.8f},{:.8f})",
                          override_audit.batch_first[0], override_audit.batch_first[1],
                          override_audit.batch_first[2], override_audit.batch_last[0],
                          override_audit.batch_last[1], override_audit.batch_last[2],
@@ -502,7 +513,8 @@ void BufferCache<P>::SetUniformBuffersState(const std::array<u32, NUM_STAGES>& m
 
 template <class P>
 void BufferCache<P>::SetGraphicsUniformBufferFloat3Override(size_t stage, u32 index, u32 offset,
-                                                              std::array<f32, 3> values, s32 mode) {
+                                                              std::array<f32, 3> values, s32 mode,
+                                                              bool write_values) {
     if (stage >= NUM_STAGES || index >= NUM_GRAPHICS_UNIFORM_BUFFERS) {
         return;
     }
@@ -512,6 +524,7 @@ void BufferCache<P>::SetGraphicsUniformBufferFloat3Override(size_t stage, u32 in
         .offset = offset,
         .values = values,
         .mode = mode,
+        .write_values = write_values,
         .enabled = true,
     };
 }
@@ -1053,7 +1066,7 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
 
     bool override_sync_attempted = false;
     bool override_sync_hit = false;
-    bool apply_float3_override =
+    bool force_float3_stream =
         is_override_target && float3_override.offset <= size &&
         sizeof(float3_override.values) <= size - float3_override.offset;
     const auto is_chandelier_candle = [](const std::array<f32, 3>& color) {
@@ -1065,14 +1078,14 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
         return green_ratio >= 0.80393125f && green_ratio <= 0.80393325f &&
                blue_ratio >= 0.46274848f && blue_ratio <= 0.46275048f;
     };
-    if (apply_float3_override) {
+    if (force_float3_stream) {
         // Synchronize first so the ratio check uses the same live contents as a normal UBO bind.
         override_sync_hit = SynchronizeBuffer(buffer, device_addr, size);
         override_sync_attempted = true;
         std::array<f32, 3> live_emissive{};
         device_memory.ReadBlockUnsafe(device_addr + float3_override.offset,
                                       live_emissive.data(), sizeof(live_emissive));
-        apply_float3_override = is_chandelier_candle(live_emissive);
+        force_float3_stream = is_chandelier_candle(live_emissive);
     }
     const bool needs_alignment_stream = [&]() {
         if constexpr (IS_OPENGL) {
@@ -1086,7 +1099,7 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
         }
     }();
     const bool use_fast_buffer =
-        apply_float3_override || needs_alignment_stream || use_cached_fast_buffer;
+        force_float3_stream || needs_alignment_stream || use_cached_fast_buffer;
     if (use_fast_buffer) {
         if constexpr (IS_OPENGL) {
             if (runtime.HasFastBufferSubData()) {
@@ -1110,13 +1123,16 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
         // Stream buffer path to avoid stalling on non-Nvidia drivers or Vulkan
         const std::span<u8> span = runtime.BindMappedUniformBuffer(stage, binding_index, size);
         device_memory.ReadBlockUnsafe(device_addr, span.data(), size);
-        if (apply_float3_override) {
+        if (force_float3_stream) {
             std::array<f32, 3> live_emissive{};
             std::memcpy(live_emissive.data(), span.data() + float3_override.offset,
                         sizeof(live_emissive));
             if (is_chandelier_candle(live_emissive)) {
-                std::memcpy(span.data() + float3_override.offset, float3_override.values.data(),
-                            sizeof(float3_override.values));
+                const std::array<f32, 3> original_emissive = live_emissive;
+                if (float3_override.write_values) {
+                    std::memcpy(span.data() + float3_override.offset,
+                                float3_override.values.data(), sizeof(float3_override.values));
+                }
 
                 std::array<f32, 3> post_override{};
                 std::memcpy(post_override.data(), span.data() + float3_override.offset,
@@ -1128,9 +1144,11 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
                 }
                 ++audit.draws_this_frame;
                 ++audit.readbacks_this_frame;
-                const bool readback_matches =
-                    std::memcmp(post_override.data(), float3_override.values.data(),
-                                sizeof(post_override)) == 0;
+                const bool readback_matches = float3_override.write_values
+                    ? std::memcmp(post_override.data(), float3_override.values.data(),
+                                  sizeof(post_override)) == 0
+                    : std::memcmp(post_override.data(), original_emissive.data(),
+                                  sizeof(post_override)) == 0;
                 if (!readback_matches) {
                     ++audit.mismatches_this_frame;
                 }
