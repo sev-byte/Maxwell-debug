@@ -365,6 +365,7 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
     const s32 emissive_override =
         Settings::values.maxwell_emissive_multiplier_override.GetValue();
     if ((emissive_override == 1 || emissive_override == 2) &&
+        key.unique_hashes[0] == 0xa71664c0a2643d30ULL &&
         key.unique_hashes[5] == 0x331f0de4dc79b7baULL) {
         const f32 multiplier = emissive_override == 1 ? 1.0f : 2.0f;
         const std::array<f32, 3> emissive_values{

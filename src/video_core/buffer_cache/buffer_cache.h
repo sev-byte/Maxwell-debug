@@ -994,8 +994,21 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
         const std::span<u8> span = runtime.BindMappedUniformBuffer(stage, binding_index, size);
         device_memory.ReadBlockUnsafe(device_addr, span.data(), size);
         if (apply_float3_override) {
-            std::memcpy(span.data() + float3_override.offset, float3_override.values.data(),
-                        sizeof(float3_override.values));
+            std::array<f32, 3> original_emissive{};
+            std::memcpy(original_emissive.data(), span.data() + float3_override.offset,
+                        sizeof(original_emissive));
+            const f32 red = original_emissive[0];
+            // Match the chandelier candle's authored warm-emissive RGB ratios first.
+            const bool is_chandelier_candle =
+                red >= 0.9f && red <= 2.1f &&
+                original_emissive[1] >= red * 0.8029f &&
+                original_emissive[1] <= red * 0.8049f &&
+                original_emissive[2] >= red * 0.4617f &&
+                original_emissive[2] <= red * 0.4637f;
+            if (is_chandelier_candle) {
+                std::memcpy(span.data() + float3_override.offset, float3_override.values.data(),
+                            sizeof(float3_override.values));
+            }
         }
         return;
     }
