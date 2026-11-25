@@ -1047,6 +1047,9 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
     TouchBuffer(buffer, binding.buffer_id);
     const bool has_host_buffer = binding.buffer_id != NULL_BUFFER_ID;
     const u32 offset = has_host_buffer ? buffer.Offset(device_addr) : 0;
+    const bool use_cached_fast_buffer =
+        has_host_buffer && size <= channel_state->uniform_buffer_skip_cache_size &&
+        !memory_tracker.IsRegionGpuModified(device_addr, size);
 
     bool override_sync_attempted = false;
     bool override_sync_hit = false;
@@ -1082,9 +1085,8 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
             return alignment > 1 && (offset % alignment) != 0;
         }
     }();
-    const bool use_fast_buffer = apply_float3_override || needs_alignment_stream
-        || (has_host_buffer && size <= channel_state->uniform_buffer_skip_cache_size
-            && !memory_tracker.IsRegionGpuModified(device_addr, size));
+    const bool use_fast_buffer =
+        apply_float3_override || needs_alignment_stream || use_cached_fast_buffer;
     if (use_fast_buffer) {
         if constexpr (IS_OPENGL) {
             if (runtime.HasFastBufferSubData()) {
