@@ -1,0 +1,90 @@
+name: Audit earlier Build 3A allocation lifetime (temporary)
+
+on:
+  push:
+    branches:
+      - maxwell-issue-tracking
+    paths:
+      - '.github/workflows/retrieve-old-alias-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download and verify earlier Build 3A capture
+        run: |
+          curl --fail --location --silent --show-error --retry 3 \
+            "https://github.com/sev-byte/Maxwell-debug/releases/download/build3a-android-test-logs/Pipeline.transfer.build.3a.zip" \
+            -o earlier-build3a.zip
+          echo "498805f960e5058ddda18967e2891cb1a4502e6b0981d590e75c33838686c6b9  earlier-build3a.zip" | sha256sum --check
+      - name: Extract allocation and ownership audit
+        run: |
+          cat > audit.py <<'PY'
+          import zipfile, re, collections, csv, os
+          archive = "earlier-build3a.zip"
+          target_start, target_end = 0x7491000, 0x7ad1000
+          counts = collections.Counter()
+          selected = []
+          anchors = []
+          target_lines = 0
+          with zipfile.ZipFile(archive) as z:
+              infos = z.infolist()
+              logs = [i for i in infos if i.filename.lower().endswith(("eden_gpu.log", ".log", ".txt"))]
+              if not logs:
+                  logs = [max(infos, key=lambda i:i.file_size)]
+              for info in logs:
+                  with z.open(info) as f:
+                      for raw in f:
+                          s = raw.decode("utf-8", "replace").rstrip()
+                          if "WALL_CLOCK_ANCHOR" in s:
+                              anchors.append(s)
+                          # Count major event classes even when they are not kept.
+                          m = re.search(r"\[PipelineAudit\] seq=\d+\s+(\w+)", s)
+                          if m: counts[m.group(1)] += 1
+                          keep = any(t in s for t in [
+                            "IMAGE_CREATE","IMAGE_DESTROY","IMAGE_VIEW_CREATE","IMAGE_VIEW_DESTROY",
+                            "BUFFER_CREATE","BUFFER_DESTROY","BUFFER_BIND","BUFFER_UNBIND",
+                            "HOST_READBACK_WRITEBACK","COMPUTE_BUFFER_BIND","TARGET_RANGE_DISCOVERED",
+                            "TARGET_GPU_WRITE_MARK","TARGET_ASYNC_BATCH_SCHEDULED","TARGET_ASYNC_POP_RANGE",
+                            "TARGET_ASYNC_BATCH_POP","TARGET_OWNERSHIP_CLEAR","COMPUTE_DISPATCH",
+                            "FREE_MEMORY","MEMORY_FREE","UNMAP","BUFFER_FREE","IMAGE_FREE"
+                          ])
+                          if keep:
+                            if any(x in s for x in [
+                              "HOST_READBACK_WRITEBACK","COMPUTE_BUFFER_BIND","TARGET_RANGE_DISCOVERED",
+                              "TARGET_GPU_WRITE_MARK","TARGET_ASYNC_BATCH_SCHEDULED","TARGET_ASYNC_POP_RANGE",
+                              "TARGET_ASYNC_BATCH_POP","TARGET_OWNERSHIP_CLEAR","COMPUTE_DISPATCH"
+                            ]):
+                              selected.append(s)
+                            elif any(x in s for x in ["IMAGE_CREATE","IMAGE_DESTROY","IMAGE_VIEW_CREATE","IMAGE_VIEW_DESTROY"]) and (
+                              f"guest_cpu_addr=0x{target_start:x}" in s or
+                              "guest_gpu_addr=0x508380000" in s or
+                              "0x7491000" in s or "0x7730000000773" in s
+                            ):
+                              selected.append(s)
+                            elif ("BUFFER" in s or "MEMORY" in s or "FREE" in s or "UNMAP" in s) and "0x7491000" in s:
+                              selected.append(s)
+                            if "0x7491000" in s: target_lines += 1
+          with open("old-audit-summary.txt","w") as f:
+              f.write("EARLIER BUILD 3A RAW CAPTURE\n")
+              f.write("Log members: " + str(len(logs)) + "\n")
+              f.write("Records containing target CPU address 0x7491000: " + str(target_lines) + "\n\n")
+              f.write("WALL CLOCK ANCHORS\n" + "\n".join(anchors[:20]) + "\n\n")
+              f.write("EVENT COUNTS\n")
+              for k,v in counts.most_common(): f.write(f"{k} {v}\n")
+              f.write("\nSELECTED MEMORY / READBACK EVENTS\n")
+              f.write("\n".join(selected))
+          print(open("old-audit-summary.txt").read()[:30000])
+          PY
+          python3 audit.py
+      - name: Upload audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: earlier-build3a-alias-audit
+          path: old-audit-summary.txt
+          if-no-files-found: error
+          retention-days: 1
