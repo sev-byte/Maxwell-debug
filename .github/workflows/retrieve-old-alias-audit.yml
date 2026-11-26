@@ -1,4 +1,4 @@
-name: Audit earlier Build 3A allocation lifetime (temporary)
+name: Audit earlier Build 3A image-buffer overlap (temporary)
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Download and verify earlier Build 3A capture
         run: |
@@ -21,70 +21,79 @@ jobs:
             "https://github.com/sev-byte/Maxwell-debug/releases/download/build3a-android-test-logs/Pipeline.transfer.build.3a.zip" \
             -o earlier-build3a.zip
           echo "498805f960e5058ddda18967e2891cb1a4502e6b0981d590e75c33838686c6b9  earlier-build3a.zip" | sha256sum --check
-      - name: Extract allocation and ownership audit
+      - name: Audit image and storage-buffer aliases
         run: |
           cat > audit.py <<'PY'
-          import zipfile, re, collections, csv, os
+          import zipfile, re, collections
           archive = "earlier-build3a.zip"
-          target_start, target_end = 0x7491000, 0x7ad1000
-          counts = collections.Counter()
-          selected = []
-          anchors = []
-          target_lines = 0
+          addr_gpu = "guest_gpu_addr=0x51c180000"
+          addr_cpu = "guest_cpu_addr=0x7491000"
+          buf_cpu = "backing_cpu_addr=0x7491000"
+          views = set()
+          view_lines = []
+          image_lines = []
           with zipfile.ZipFile(archive) as z:
-              infos = z.infolist()
-              logs = [i for i in infos if i.filename.lower().endswith(("eden_gpu.log", ".log", ".txt"))]
-              if not logs:
-                  logs = [max(infos, key=lambda i:i.file_size)]
-              for info in logs:
-                  with z.open(info) as f:
-                      for raw in f:
-                          s = raw.decode("utf-8", "replace").rstrip()
-                          if "WALL_CLOCK_ANCHOR" in s:
-                              anchors.append(s)
-                          # Count major event classes even when they are not kept.
-                          m = re.search(r"\[PipelineAudit\] seq=\d+\s+(\w+)", s)
-                          if m: counts[m.group(1)] += 1
-                          keep = any(t in s for t in [
-                            "IMAGE_CREATE","IMAGE_DESTROY","IMAGE_VIEW_CREATE","IMAGE_VIEW_DESTROY",
-                            "BUFFER_CREATE","BUFFER_DESTROY","BUFFER_BIND","BUFFER_UNBIND",
-                            "HOST_READBACK_WRITEBACK","COMPUTE_BUFFER_BIND","TARGET_RANGE_DISCOVERED",
-                            "TARGET_GPU_WRITE_MARK","TARGET_ASYNC_BATCH_SCHEDULED","TARGET_ASYNC_POP_RANGE",
-                            "TARGET_ASYNC_BATCH_POP","TARGET_OWNERSHIP_CLEAR","COMPUTE_DISPATCH",
-                            "FREE_MEMORY","MEMORY_FREE","UNMAP","BUFFER_FREE","IMAGE_FREE"
-                          ])
-                          if keep:
-                            if any(x in s for x in [
-                              "HOST_READBACK_WRITEBACK","COMPUTE_BUFFER_BIND","TARGET_RANGE_DISCOVERED",
-                              "TARGET_GPU_WRITE_MARK","TARGET_ASYNC_BATCH_SCHEDULED","TARGET_ASYNC_POP_RANGE",
-                              "TARGET_ASYNC_BATCH_POP","TARGET_OWNERSHIP_CLEAR","COMPUTE_DISPATCH"
-                            ]):
-                              selected.append(s)
-                            elif any(x in s for x in ["IMAGE_CREATE","IMAGE_DESTROY","IMAGE_VIEW_CREATE","IMAGE_VIEW_DESTROY"]) and (
-                              f"guest_cpu_addr=0x{target_start:x}" in s or
-                              "guest_gpu_addr=0x508380000" in s or
-                              "0x7491000" in s or "0x7730000000773" in s
-                            ):
-                              selected.append(s)
-                            elif ("BUFFER" in s or "MEMORY" in s or "FREE" in s or "UNMAP" in s) and "0x7491000" in s:
-                              selected.append(s)
-                            if "0x7491000" in s: target_lines += 1
-          with open("old-audit-summary.txt","w") as f:
-              f.write("EARLIER BUILD 3A RAW CAPTURE\n")
-              f.write("Log members: " + str(len(logs)) + "\n")
-              f.write("Records containing target CPU address 0x7491000: " + str(target_lines) + "\n\n")
-              f.write("WALL CLOCK ANCHORS\n" + "\n".join(anchors[:20]) + "\n\n")
-              f.write("EVENT COUNTS\n")
-              for k,v in counts.most_common(): f.write(f"{k} {v}\n")
-              f.write("\nSELECTED MEMORY / READBACK EVENTS\n")
-              f.write("\n".join(selected))
-          print(open("old-audit-summary.txt").read()[:30000])
+            logs = [i for i in z.infolist() if i.filename.lower().endswith(("eden_gpu.log",".log",".txt"))]
+            for info in logs:
+              with z.open(info) as f:
+                for raw in f:
+                  s=raw.decode("utf-8","replace").rstrip()
+                  if "IMAGE_CREATE" in s and (addr_gpu in s or addr_cpu in s):
+                    image_lines.append(s)
+                  if "IMAGE_VIEW_CREATE" in s and addr_gpu in s:
+                    m=re.search(r"view=(0x[0-9a-fA-F]+)",s)
+                    if m: views.add(m.group(1))
+                    view_lines.append(s)
+          desc_counts=collections.Counter()
+          desc_first=collections.defaultdict(list)
+          desc_last=collections.defaultdict(collections.deque)
+          dispatch=0; marks=0; binds=0; writebacks=0
+          selected=[]
+          view_set=views
+          with zipfile.ZipFile(archive) as z:
+            for info in logs:
+              with z.open(info) as f:
+                for raw in f:
+                  s=raw.decode("utf-8","replace").rstrip()
+                  if "COMPUTE_DISPATCH" in s and "shader_hash=0x4577aed68dd75ecc" in s:
+                    dispatch+=1
+                  if "TARGET_GPU_WRITE_MARK" in s and "address=0x7491000" in s:
+                    marks+=1
+                  if "COMPUTE_BUFFER_BIND" in s and buf_cpu in s and "kind=storage_buffer" in s:
+                    binds+=1
+                    if len(selected)<8: selected.append(s)
+                  if "HOST_READBACK_WRITEBACK" in s and addr_cpu in s:
+                    writebacks+=1
+                  if "DESCRIPTOR_WRITE" in s and "kind=sampled_image" in s:
+                    m=re.search(r"view=(0x[0-9a-fA-F]+)",s)
+                    if m and m.group(1) in view_set:
+                      v=m.group(1); desc_counts[v]+=1
+                      if len(desc_first[v])<3: desc_first[v].append(s)
+                      desc_last[v].append(s)
+                      if len(desc_last[v])>3: desc_last[v].popleft()
+          with open("old-image-buffer-overlap.txt","w") as f:
+            f.write("EARLIER BUILD 3A IMAGE / BUFFER OVERLAP AUDIT\n")
+            f.write(f"Image create records at guest GPU 0x51c180000 / CPU 0x7491000: {len(image_lines)}\n")
+            f.write(f"Image views created for guest GPU 0x51c180000: {len(view_lines)} unique view handles: {len(views)}\n")
+            f.write(f"Storage-buffer binds at backing CPU 0x7491000: {binds}\n")
+            f.write(f"Compute dispatches for shader 4577aed68dd75ecc: {dispatch}\n")
+            f.write(f"GPU write marks at CPU 0x7491000: {marks}\n")
+            f.write(f"Host readback writebacks to CPU 0x7491000: {writebacks}\n")
+            f.write("\nIMAGE CREATE RECORDS\n"+"\n".join(image_lines)+"\n")
+            f.write("\nIMAGE VIEW CREATE RECORDS\n"+"\n".join(view_lines)+"\n")
+            f.write("\nSAMPLED-IMAGE DESCRIPTOR WRITES BY IMAGE VIEW\n")
+            for v,n in desc_counts.most_common():
+              f.write(f"\n{v}: {n} writes\n")
+              f.write("first:\n"+"\n".join(desc_first[v])+"\n")
+              f.write("last:\n"+"\n".join(desc_last[v])+"\n")
+            f.write("\nFIRST STORAGE BIND EXAMPLES\n"+"\n".join(selected)+"\n")
+          print(open("old-image-buffer-overlap.txt").read()[:30000])
           PY
           python3 audit.py
       - name: Upload audit
         uses: actions/upload-artifact@v4
         with:
-          name: earlier-build3a-alias-audit
-          path: old-audit-summary.txt
+          name: earlier-build3a-image-buffer-overlap
+          path: old-image-buffer-overlap.txt
           if-no-files-found: error
           retention-days: 1
